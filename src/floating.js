@@ -30,22 +30,39 @@
 /** @typedef {Element | VirtualReference} PositionReference */
 
 /**
+ * @typedef {Object} Subscription
+ * @property {Element | null} reference
+ * @property {HTMLElement} floating
+ * @property {(detail: AutoUpdateDetail) => void} callback
+ */
+
+/**
  * @typedef {Object} AutoUpdateDetail
  * @property {"scroll" | "resize" | "element-resize"} type
  * @property {Set<EventTarget>} targets Event or resized element targets coalesced into this frame.
  * @property {number} timeStamp Greatest source event timestamp coalesced into this frame.
  */
 
-function getSide(placement) {
-  return placement.split("-")[0];
+/* The main axis is the one the side extends along: `top`/`bottom` place the
+ * element above or below, so alignment slides it on x. */
+/** @param {string} side */
+function mainAxisFor(side) {
+  return side === "top" || side === "bottom" ? "x" : "y";
 }
 
-function getAlignment(placement) {
-  return placement.split("-")[1] || null;
+/** @param {string} placement */
+function parsePlacement(placement) {
+  const dash = placement.indexOf("-");
+  const side = dash === -1 ? placement : placement.slice(0, dash);
+  return { side, align: dash === -1 ? null : placement.slice(dash + 1), axis: mainAxisFor(side) };
 }
 
-function getMainAxis(placement) {
-  return ["top", "bottom"].includes(getSide(placement)) ? "x" : "y";
+/**
+ * @param {string} side
+ * @param {string | null} align
+ */
+function formatPlacement(side, align) {
+  return align ? `${side}-${align}` : side;
 }
 
 function flipSide(side) {
@@ -56,14 +73,13 @@ function flipSide(side) {
   return side;
 }
 
-function computeCoords(reference, floating, placement, rtl) {
+function computeCoords(reference, floating, side, align, rtl) {
+  const axis = mainAxisFor(side);
   const commonX = reference.x + reference.width / 2 - floating.width / 2;
   const commonY = reference.y + reference.height / 2 - floating.height / 2;
-  const mainAxis = getMainAxis(placement);
   const commonAlign =
-    reference[mainAxis === "x" ? "width" : "height"] / 2 -
-    floating[mainAxis === "x" ? "width" : "height"] / 2;
-  const side = getSide(placement);
+    reference[axis === "x" ? "width" : "height"] / 2 -
+    floating[axis === "x" ? "width" : "height"] / 2;
 
   let coords;
   switch (side) {
@@ -83,10 +99,12 @@ function computeCoords(reference, floating, placement, rtl) {
       coords = { x: reference.x, y: reference.y };
   }
 
-  const align = getAlignment(placement);
-  const isVertical = mainAxis === "x";
-  if (align === "start") coords[mainAxis] -= commonAlign * (rtl && isVertical ? -1 : 1);
-  if (align === "end") coords[mainAxis] += commonAlign * (rtl && isVertical ? -1 : 1);
+  /* Physical sides stay physical in RTL; only logical alignment follows the
+   * reference direction, and only on the axis alignment slides along. */
+  if (align === "start" || align === "end") {
+    const direction = (rtl && axis === "x" ? -1 : 1) * (align === "end" ? 1 : -1);
+    coords[axis] += commonAlign * direction;
+  }
 
   return coords;
 }
@@ -238,6 +256,9 @@ function getAvailableHeight(referenceRect, side, boundary, distance, padding) {
   return Math.max(0, boundary.height - padding * 2);
 }
 
+/* `checkVisibility()` is called with its defaults on purpose: an element hidden
+ * with `visibility` or `opacity` still has a box and stays measurable, which is
+ * what lets a consumer hide an out-of-boundary surface and bring it back. */
 function isVisible(element) {
   if (element.hidden) return false;
   if (typeof element.checkVisibility === "function") return element.checkVisibility();
@@ -262,11 +283,11 @@ function createTracker(doc) {
   const win = doc.defaultView;
   if (!win) throw new TypeError("floating must belong to a document with a browsing context");
 
-  /** @type {Set<{reference: Element | null, floating: HTMLElement, callback: (detail: AutoUpdateDetail) => void}>} */
+  /** @type {Set<Subscription>} */
   const subscriptions = new Set();
   /** @type {Map<Element, {count: number, primed: boolean}>} */
   const observed = new Map();
-  /** @type {Map<{reference: Element | null, floating: HTMLElement, callback: (detail: AutoUpdateDetail) => void}, Map<AutoUpdateDetail["type"], {targets: Set<EventTarget>, timeStamp: number}>>} */
+  /** @type {Map<Subscription, Map<AutoUpdateDetail["type"], {targets: Set<EventTarget>, timeStamp: number}>>} */
   const pending = new Map();
 
   const ResizeObserverCtor = win.ResizeObserver;
@@ -464,10 +485,14 @@ export function reposition(reference, floating, options = {}) {
   const flip = options.flip !== false;
   const shift = options.shift !== false;
   const shiftPadding = options.shiftPadding ?? 4;
-  const rtl = isRTL(reference);
+
+  let { side, align, axis } = parsePlacement(placement);
+  /* Direction only changes logical alignment, and resolving it costs a style
+   * recalc on engines without `:dir()`. Centered placements never need it. */
+  const rtl = align ? isRTL(reference) : false;
 
   const rects = reference.getClientRects();
-  const referenceRect = placement.startsWith("bottom") ? rects[rects.length - 1] : rects[0];
+  const referenceRect = side === "bottom" ? rects[rects.length - 1] : rects[0];
   if (!referenceRect) return false;
 
   const boundary = getBoundary(reference, options);
@@ -479,11 +504,7 @@ export function reposition(reference, floating, options = {}) {
   const maxBoundaryX = boundary.right;
   const maxBoundaryY = boundary.bottom;
 
-  let side = getSide(placement);
-  const align = getAlignment(placement);
-  let axis = getMainAxis(placement);
-  let current = placement;
-  let coords = computeCoords(referenceRect, floatingRect, current, rtl);
+  let coords = computeCoords(referenceRect, floatingRect, side, align, rtl);
   applyOffset(coords, side, distance);
 
   if (flip) {
@@ -495,8 +516,7 @@ export function reposition(reference, floating, options = {}) {
       (axis === "y" && (x < minBoundaryX || x + floatingRect.width >= maxBoundaryX))
     ) {
       side = flipSide(side);
-      current = /** @type {Placement} */ (align ? `${side}-${align}` : side);
-      coords = computeCoords(referenceRect, floatingRect, current, rtl);
+      coords = computeCoords(referenceRect, floatingRect, side, align, rtl);
       applyOffset(coords, side, distance);
     }
 
@@ -507,25 +527,23 @@ export function reposition(reference, floating, options = {}) {
     ) {
       side = "top";
       axis = "x";
-      current = /** @type {Placement} */ (align ? `${side}-${align}` : side);
-      coords = computeCoords(referenceRect, floatingRect, current, rtl);
+      coords = computeCoords(referenceRect, floatingRect, side, align, rtl);
       applyOffset(coords, side, distance);
     }
   }
 
-  if (axis === "x" && shift && getAlignment(current)) {
+  if (axis === "x" && shift && align) {
     const minX = minBoundaryX + shiftPadding;
     const maxX = maxBoundaryX - shiftPadding;
     const currentOverflow = getInlineOverflow(coords, floatingRect, minX, maxX);
 
     if (currentOverflow > 0) {
-      const nextAlign = getAlignment(current) === "end" ? "start" : "end";
-      const candidatePlacement = /** @type {Placement} */ (`${side}-${nextAlign}`);
-      const candidate = computeCoords(referenceRect, floatingRect, candidatePlacement, rtl);
+      const nextAlign = align === "end" ? "start" : "end";
+      const candidate = computeCoords(referenceRect, floatingRect, side, nextAlign, rtl);
       applyOffset(candidate, side, distance);
 
       if (getInlineOverflow(candidate, floatingRect, minX, maxX) < currentOverflow) {
-        current = candidatePlacement;
+        align = nextAlign;
         coords = candidate;
       }
     }
@@ -565,11 +583,9 @@ export function reposition(reference, floating, options = {}) {
   floating.style.setProperty("--arrow-x", `${arrowX}%`);
   floating.style.setProperty("--arrow-y", `${arrowY}%`);
   floating.style.setProperty("--available-height", `${availableHeight}px`);
-  floating.dataset.placement = current;
-  Object.assign(floating.style, {
-    left: `${coords.x}px`,
-    top: `${coords.y}px`,
-  });
+  floating.dataset.placement = formatPlacement(side, align);
+  floating.style.left = `${coords.x}px`;
+  floating.style.top = `${coords.y}px`;
 
   return true;
 }
