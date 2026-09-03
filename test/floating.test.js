@@ -879,3 +879,28 @@ test('dir="auto" is resolved against the tree, not treated as ltr', async () => 
   reposition(reference, float, { placement: "bottom-start" });
   assert.equal(float.style.left, "200px");
 });
+
+test("distance is applied away from the reference on all four sides", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 400, y: 300, width: 100, height: 40 });
+  mockRect(float, { x: 0, y: 0, width: 200, height: 80 });
+
+  // Room on every side, so each case is the raw placement plus the gap.
+  const expected = {
+    top: { left: "350px", top: "210px" },
+    bottom: { left: "350px", top: "350px" },
+    right: { left: "510px", top: "280px" },
+    left: { left: "190px", top: "280px" },
+  };
+
+  for (const [placement, coords] of Object.entries(expected)) {
+    assert.equal(reposition(ref, float, { placement, distance: 10 }), true);
+    assert.equal(float.dataset.placement, placement);
+    assert.equal(float.style.left, coords.left);
+    assert.equal(float.style.top, coords.top);
+  }
+});
