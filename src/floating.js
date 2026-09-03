@@ -50,13 +50,8 @@ function crossAxisFor(side) {
 
 /** @param {string} placement */
 function parsePlacement(placement) {
-  const dash = placement.indexOf("-");
-  const side = dash === -1 ? placement : placement.slice(0, dash);
-  return {
-    side,
-    align: dash === -1 ? null : placement.slice(dash + 1),
-    crossAxis: crossAxisFor(side),
-  };
+  const [side, align = null] = placement.split("-");
+  return { side, align, crossAxis: crossAxisFor(side) };
 }
 
 /**
@@ -72,7 +67,7 @@ function flipSide(side) {
   return { top: "bottom", bottom: "top", left: "right", right: "left" }[side] || side;
 }
 
-function computeCoords(reference, floating, side, align, rtl) {
+function computeCoords(reference, floating, side, align, rtl, distance) {
   const crossAxis = crossAxisFor(side);
   const commonX = reference.x + reference.width / 2 - floating.width / 2;
   const commonY = reference.y + reference.height / 2 - floating.height / 2;
@@ -83,16 +78,16 @@ function computeCoords(reference, floating, side, align, rtl) {
   let coords;
   switch (side) {
     case "top":
-      coords = { x: commonX, y: reference.y - floating.height };
+      coords = { x: commonX, y: reference.y - floating.height - distance };
       break;
     case "bottom":
-      coords = { x: commonX, y: reference.y + reference.height };
+      coords = { x: commonX, y: reference.y + reference.height + distance };
       break;
     case "right":
-      coords = { x: reference.x + reference.width, y: commonY };
+      coords = { x: reference.x + reference.width + distance, y: commonY };
       break;
     case "left":
-      coords = { x: reference.x - floating.width, y: commonY };
+      coords = { x: reference.x - floating.width - distance, y: commonY };
       break;
     default:
       coords = { x: reference.x, y: reference.y };
@@ -106,23 +101,6 @@ function computeCoords(reference, floating, side, align, rtl) {
   }
 
   return coords;
-}
-
-function applyOffset(coords, side, offset) {
-  switch (side) {
-    case "top":
-      coords.y -= offset;
-      break;
-    case "bottom":
-      coords.y += offset;
-      break;
-    case "left":
-      coords.x -= offset;
-      break;
-    case "right":
-      coords.x += offset;
-      break;
-  }
 }
 
 function getInlineOverflow(coords, floating, minX, maxX) {
@@ -438,48 +416,39 @@ export function reposition(reference, floating, options = {}) {
   if (!boundary || isOutsideBoundary(referenceRect, boundary)) return false;
 
   const floatingRect = getFloatingSize(floating);
-  const minBoundaryX = boundary.x;
-  const minBoundaryY = boundary.y;
-  const maxBoundaryX = boundary.right;
-  const maxBoundaryY = boundary.bottom;
-
-  let coords = computeCoords(referenceRect, floatingRect, side, align, rtl);
-  applyOffset(coords, side, distance);
+  let coords = computeCoords(referenceRect, floatingRect, side, align, rtl, distance);
 
   if (flip) {
     const x = Math.ceil(coords.x);
     const y = Math.ceil(coords.y);
 
     if (
-      (crossAxis === "x" && (y < minBoundaryY || y + floatingRect.height >= maxBoundaryY)) ||
-      (crossAxis === "y" && (x < minBoundaryX || x + floatingRect.width >= maxBoundaryX))
+      (crossAxis === "x" && (y < boundary.y || y + floatingRect.height >= boundary.bottom)) ||
+      (crossAxis === "y" && (x < boundary.x || x + floatingRect.width >= boundary.right))
     ) {
       side = flipSide(side);
-      coords = computeCoords(referenceRect, floatingRect, side, align, rtl);
-      applyOffset(coords, side, distance);
+      coords = computeCoords(referenceRect, floatingRect, side, align, rtl, distance);
     }
 
     if (
       crossAxis === "y" &&
-      (coords.x < minBoundaryX || coords.x + floatingRect.width > maxBoundaryX) &&
+      (coords.x < boundary.x || coords.x + floatingRect.width > boundary.right) &&
       boundary.width - floatingRect.width < NARROW_INLINE_FLIP_FALLBACK
     ) {
       side = "top";
       crossAxis = "x";
-      coords = computeCoords(referenceRect, floatingRect, side, align, rtl);
-      applyOffset(coords, side, distance);
+      coords = computeCoords(referenceRect, floatingRect, side, align, rtl, distance);
     }
   }
 
   if (crossAxis === "x" && shift && align) {
-    const minX = minBoundaryX + shiftPadding;
-    const maxX = maxBoundaryX - shiftPadding;
+    const minX = boundary.x + shiftPadding;
+    const maxX = boundary.right - shiftPadding;
     const currentOverflow = getInlineOverflow(coords, floatingRect, minX, maxX);
 
     if (currentOverflow > 0) {
       const nextAlign = align === "end" ? "start" : "end";
-      const candidate = computeCoords(referenceRect, floatingRect, side, nextAlign, rtl);
-      applyOffset(candidate, side, distance);
+      const candidate = computeCoords(referenceRect, floatingRect, side, nextAlign, rtl, distance);
 
       if (getInlineOverflow(candidate, floatingRect, minX, maxX) < currentOverflow) {
         align = nextAlign;
@@ -492,16 +461,16 @@ export function reposition(reference, floating, options = {}) {
     coords.x = clampToBoundary(
       coords.x,
       floatingRect.width,
-      minBoundaryX,
-      maxBoundaryX,
+      boundary.x,
+      boundary.right,
       shiftPadding,
     );
     if (crossAxis === "y") {
       coords.y = clampToBoundary(
         coords.y,
         floatingRect.height,
-        minBoundaryY,
-        maxBoundaryY,
+        boundary.y,
+        boundary.bottom,
         shiftPadding,
       );
     }
