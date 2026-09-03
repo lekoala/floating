@@ -67,12 +67,9 @@ function formatPlacement(side, align) {
   return align ? `${side}-${align}` : side;
 }
 
+/** @param {string} side */
 function flipSide(side) {
-  if (side === "top") return "bottom";
-  if (side === "bottom") return "top";
-  if (side === "left") return "right";
-  if (side === "right") return "left";
-  return side;
+  return { top: "bottom", bottom: "top", left: "right", right: "left" }[side] || side;
 }
 
 function computeCoords(reference, floating, side, align, rtl) {
