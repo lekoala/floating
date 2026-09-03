@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>@lekoala/floating demo</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; margin: 4rem; min-height: 120vh; }
+    button { padding: .6rem .8rem; }
+    #popup { position: fixed; max-width: 18rem; padding: .75rem; border: 1px solid #aaa; border-radius: .4rem; background: Canvas; color: CanvasText; box-shadow: 0 .5rem 1.5rem rgb(0 0 0 / .15); }
+  </style>
+</head>
+<body>
+  <button id="anchor" type="button">Toggle floating panel</button>
+  <div id="popup" hidden>Scroll or resize the page. The panel follows the button and flips when needed.</div>
+
+  <script type="module">
+    import { autoUpdate, reposition } from "../src/index.js";
+
+    const anchor = document.querySelector("#anchor");
+    const popup = document.querySelector("#popup");
+    let stop = null;
+
+    function update() {
+      reposition(anchor, popup, {
+        placement: "bottom-start",
+        distance: 6,
+      });
+    }
+
+    anchor.addEventListener("click", () => {
+      if (!popup.hidden) {
+        popup.hidden = true;
+        stop?.();
+        stop = null;
+        return;
+      }
+
+      popup.hidden = false;
+      update();
+      stop = autoUpdate(anchor, popup, update);
+    });
+  </script>
+</body>
+</html>

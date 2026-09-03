@@ -1,0 +1,55 @@
+{
+  "name": "@lekoala/floating",
+  "version": "0.1.0",
+  "description": "Small zero-dependency positioning engine for floating browser UI",
+  "type": "module",
+  "license": "MIT",
+  "author": "LeKoala",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lekoala/floating.git"
+  },
+  "homepage": "https://github.com/lekoala/floating",
+  "bugs": {
+    "url": "https://github.com/lekoala/floating/issues"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "types",
+    "README.md",
+    "CHANGELOG.md",
+    "MIGRATION.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "types": "tsc -p tsconfig.types.json",
+    "typecheck": "tsc -p tsconfig.check.json",
+    "lint": "biome check src test",
+    "lint:fix": "biome check --write src test",
+    "check": "npm run typecheck && npm run test && npm run lint && npm run types",
+    "prepack": "npm run check"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.8",
+    "happy-dom": "^20.0.0",
+    "typescript": "^5.8.0"
+  },
+  "packageManager": "npm@10.9.2",
+  "types": "./types/index.d.ts"
+}
