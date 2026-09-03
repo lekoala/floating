@@ -6,6 +6,7 @@
     "emitDeclarationOnly": true,
     "outDir": "types",
     "strict": true,
+    "exactOptionalPropertyTypes": true,
     "noImplicitAny": false,
     "target": "ES2022",
     "module": "ESNext",

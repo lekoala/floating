@@ -19,8 +19,9 @@ stopTracking = autoUpdate(anchor, menu, update);
 ```
 
 The reference is now observed as well as the floating element. This matters for
-controls whose width or position changes because of surrounding layout without a
-window resize.
+controls whose *size* changes because of surrounding layout without a window
+resize. A reference that moves without resizing and without a scroll is not
+detected; see the tracking limits in the README.
 
 ## Point-positioned surface
 

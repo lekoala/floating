@@ -7,7 +7,9 @@ let document;
 let resizeCallback;
 let resizeObserver;
 let resizeObserveCalls = 0;
+let nativeGetComputedStyle;
 const resizeObserved = new Set();
+const resizeObservers = [];
 
 function installDOM() {
   window = new Window({ url: "https://example.test/" });
@@ -23,24 +25,32 @@ function installDOM() {
 
   window.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
   window.cancelAnimationFrame = (id) => clearTimeout(id);
+  nativeGetComputedStyle = window.getComputedStyle.bind(window);
 
   window.ResizeObserver = class ResizeObserver {
     constructor(callback) {
+      this.elements = new Set();
+      this.disconnected = false;
       resizeCallback = callback;
       resizeObserver = this;
+      resizeObservers.push(this);
     }
 
     observe(element) {
       resizeObserveCalls += 1;
+      this.elements.add(element);
       resizeObserved.add(element);
     }
 
     unobserve(element) {
+      this.elements.delete(element);
       resizeObserved.delete(element);
     }
 
     disconnect() {
-      resizeObserved.clear();
+      this.disconnected = true;
+      for (const element of this.elements) resizeObserved.delete(element);
+      this.elements.clear();
     }
   };
 }
@@ -114,8 +124,10 @@ afterEach(() => {
   document.body.replaceChildren();
   document.documentElement.dir = "";
   document.body.style.margin = "";
-  delete document.body.clientWidth;
+  window.getComputedStyle = nativeGetComputedStyle;
+  delete document.documentElement.getBoundingClientRect;
   resizeObserved.clear();
+  resizeObservers.length = 0;
   delete window.visualViewport;
 });
 
@@ -311,7 +323,7 @@ test("autoUpdate reports reference and floating element resize", async () => {
   const ref = document.getElementById("ref");
   const float = document.getElementById("float");
   const calls = [];
-  const stop = autoUpdate(ref, float, (detail) => calls.push(detail));
+  const stop = autoUpdate(ref, float, (detail) => calls.push(detail.type));
 
   // ResizeObserver reports every newly observed element once before any resize.
   resizeCallback([{ target: ref }, { target: float }], resizeObserver);
@@ -326,12 +338,7 @@ test("autoUpdate reports reference and floating element resize", async () => {
   await nextFrame();
   await nextFrame();
 
-  assert.deepEqual(
-    calls.map((entry) => entry.type),
-    ["element-resize", "element-resize"],
-  );
-  assert.equal(calls[0].targets.has(ref), true);
-  assert.equal(calls[1].targets.has(float), true);
+  assert.deepEqual(calls, ["element-resize", "element-resize"]);
   stop();
 });
 
@@ -404,27 +411,29 @@ test("autoUpdate tracks visual viewport scroll and resize", async () => {
   const float = otherDocument.createElement("div");
   otherDocument.body.append(float);
   const calls = [];
-  const stop = autoUpdate(null, float, (detail) => calls.push(detail));
+  const stop = autoUpdate(null, float, (detail) => calls.push(detail.type));
 
   visualViewport.dispatchEvent(new otherWindow.Event("scroll"));
   visualViewport.dispatchEvent(new otherWindow.Event("resize"));
   await new Promise((resolve) => setTimeout(resolve, 5));
 
-  assert.deepEqual(
-    calls.map((entry) => entry.type),
-    ["scroll", "resize"],
-  );
-  assert.equal(calls[0].targets.has(visualViewport), true);
-  assert.equal(calls[1].targets.has(visualViewport), true);
+  assert.deepEqual(calls, ["scroll", "resize"]);
   stop();
   otherWindow.close();
 });
 
-test("reposition subtracts a stable scrollbar from the viewport boundary", async () => {
+function reserveScrollbarGutter(width, scrollbarGutter) {
+  // The root clientWidth reports the viewport; the <html> border box also loses
+  // the reserved gutter, so their difference isolates it.
+  document.documentElement.getBoundingClientRect = () => ({ width, height: 768 });
+  window.getComputedStyle = (element) =>
+    element === document.documentElement ? { scrollbarGutter } : nativeGetComputedStyle(element);
+}
+
+test("reposition subtracts a reserved scrollbar gutter from the viewport boundary", async () => {
   const { reposition } = await api();
   setViewport();
-  document.body.style.margin = "0";
-  Object.defineProperty(document.body, "clientWidth", { configurable: true, value: 1009 });
+  reserveScrollbarGutter(1009, "stable");
   document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
   const ref = document.getElementById("ref");
   const float = document.getElementById("float");
@@ -433,6 +442,21 @@ test("reposition subtracts a stable scrollbar from the viewport boundary", async
 
   reposition(ref, float, { placement: "bottom", distance: 8 });
   assert.equal(float.style.left, "885px");
+});
+
+test("reposition ignores a narrowed html box without a declared gutter", async () => {
+  const { reposition } = await api();
+  setViewport();
+  // Same 15px narrowing, but from a margin/width/transform rather than a gutter.
+  reserveScrollbarGutter(1009, "auto");
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 950, y: 100, width: 60, height: 24 });
+  mockRect(float, { x: 0, y: 0, width: 120, height: 80 });
+
+  reposition(ref, float, { placement: "bottom", distance: 8 });
+  assert.equal(float.style.left, "900px");
 });
 
 test("reposition falls back to top when a side placement cannot fit inline", async () => {
@@ -600,7 +624,7 @@ test("autoUpdate ignores the initial ResizeObserver delivery and keeps observing
   stop();
 });
 
-test("autoUpdate observes a shared element once and releases it after the last stop", async () => {
+test("each subscription owns its size observer", async () => {
   const { autoUpdate } = await api();
   document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
   const ref = document.getElementById("ref");
@@ -610,17 +634,19 @@ test("autoUpdate observes a shared element once and releases it after the last s
   const stopA = autoUpdate(ref, float, () => calls.push("a"));
   const stopB = autoUpdate(ref, float, () => calls.push("b"));
 
-  assert.equal(resizeObserveCalls - observeCalls, 2);
+  // Two subscriptions, one observer each, watching reference and floating.
+  assert.equal(resizeObservers.length, 2);
+  assert.equal(resizeObserveCalls - observeCalls, 4);
 
   window.dispatchEvent(new window.Event("resize"));
   await nextFrame();
   assert.deepEqual(calls, ["a", "b"]);
 
   stopA();
-  assert.equal(resizeObserved.has(float), true);
+  assert.equal(resizeObservers[0].disconnected, true);
+  assert.equal(resizeObservers[1].disconnected, false);
   stopB();
-  assert.equal(resizeObserved.has(ref), false);
-  assert.equal(resizeObserved.has(float), false);
+  assert.equal(resizeObservers[1].disconnected, true);
 });
 
 test("autoUpdate does not deliver an event queued before the subscription", async () => {
@@ -782,4 +808,30 @@ test("the arrow points at the reference on an RTL aligned placement", async () =
   reposition(ref, float, { placement: "bottom-start" });
   assert.equal(float.style.left, "400px");
   assert.equal(float.style.getPropertyValue("--arrow-x"), "83.333%");
+});
+
+test("autoUpdate coalesces the window and visual viewport resize into one call", async () => {
+  const { autoUpdate } = await api();
+  const otherWindow = new Window({ url: "https://dupe.test/" });
+  const otherDocument = otherWindow.document;
+  const visualViewport = new otherWindow.EventTarget();
+  Object.defineProperty(otherWindow, "visualViewport", {
+    configurable: true,
+    value: visualViewport,
+  });
+  otherWindow.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+  const float = otherDocument.createElement("div");
+  otherDocument.body.append(float);
+  const calls = [];
+  const stop = autoUpdate(null, float, (detail) => calls.push(detail));
+
+  // A real window resize fires on both targets; the consumer must see it once.
+  otherWindow.dispatchEvent(new otherWindow.Event("resize"));
+  visualViewport.dispatchEvent(new otherWindow.Event("resize"));
+  await nextFrame();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].type, "resize");
+  stop();
+  otherWindow.close();
 });

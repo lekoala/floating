@@ -11,19 +11,19 @@
 
 /**
  * @typedef {Object} RepositionOptions
- * @property {Placement} [placement="bottom-start"] Preferred physical side and logical alignment.
- * @property {number} [distance=0] Distance in CSS pixels between reference and floating element.
- * @property {boolean} [flip=true] Flip to the opposite side when the preferred side overflows.
- * @property {boolean} [shift=true] Keep the element inside the active boundary on the cross axis.
- * @property {number} [shiftPadding=4] Minimum distance in CSS pixels from the boundary while shifting, dropped when the element cannot fit inside it.
- * @property {HTMLElement} [scope] Optional clipping/positioning boundary instead of the visual viewport.
+ * @property {Placement | undefined} [placement="bottom-start"] Preferred physical side and logical alignment.
+ * @property {number | undefined} [distance=0] Distance in CSS pixels between reference and floating element.
+ * @property {boolean | undefined} [flip=true] Flip to the opposite side when the preferred side overflows.
+ * @property {boolean | undefined} [shift=true] Keep the element inside the active boundary on the cross axis.
+ * @property {number | undefined} [shiftPadding=4] Minimum distance in CSS pixels from the boundary while shifting, dropped when the element cannot fit inside it.
+ * @property {HTMLElement | undefined} [scope] Optional clipping/positioning boundary instead of the visual viewport.
  */
 
 /**
  * @typedef {Object} VirtualReference
  * @property {Document} ownerDocument
- * @property {string} [dir]
- * @property {(selector: string) => boolean} [matches]
+ * @property {string | undefined} [dir]
+ * @property {((selector: string) => boolean) | undefined} [matches]
  * @property {() => ArrayLike<DOMRect>} getClientRects
  */
 
@@ -38,9 +38,7 @@
 
 /**
  * @typedef {Object} AutoUpdateDetail
- * @property {"scroll" | "resize" | "element-resize"} type
- * @property {Set<EventTarget>} targets Event or resized element targets coalesced into this frame.
- * @property {number} timeStamp Greatest source event timestamp coalesced into this frame.
+ * @property {"scroll" | "resize" | "element-resize"} type What changed since the last frame.
  */
 
 /* The main axis is the one the side extends along: `top`/`bottom` place the
@@ -174,11 +172,7 @@ function isRTL(element) {
   return false;
 }
 
-function toNumber(value) {
-  const number = Number.parseFloat(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
+/* Most scrollbars leave 15-18px; anything wider is not a gutter. */
 const STABLE_SCROLLBAR_MAX_WIDTH = 25;
 const NARROW_INLINE_FLIP_FALLBACK = 128;
 
@@ -193,15 +187,21 @@ function getViewportBoundary(doc) {
   let width = visualViewport?.width || docEl.clientWidth || win.innerWidth;
   const height = visualViewport?.height || docEl.clientHeight || win.innerHeight;
 
-  const body = doc.body;
-  if (body?.clientWidth > 0) {
-    const bodyStyle = win.getComputedStyle?.(body);
-    const bodyMargin =
-      doc.compatMode === "CSS1Compat"
-        ? toNumber(bodyStyle?.marginLeft) + toNumber(bodyStyle?.marginRight)
-        : 0;
-    const stableScrollbar = Math.abs(docEl.clientWidth - body.clientWidth - bodyMargin);
-    if (stableScrollbar <= STABLE_SCROLLBAR_MAX_WIDTH) width -= stableScrollbar;
+  /* `scrollbar-gutter: stable` reserves space the viewport width still counts.
+   * The root `clientWidth` reports the viewport minus a rendered scrollbar,
+   * while the <html> border box also loses the reserved gutter, so their
+   * difference isolates it. Only a declared gutter narrows the boundary: any
+   * other narrowing of the <html> box (a margin, a width, a transform) must not
+   * be mistaken for one, which a body-width comparison cannot tell apart. The
+   * style lookup is read last so it stays off the common path. */
+  const reserved =
+    doc.compatMode === "BackCompat"
+      ? width - docEl.clientWidth
+      : docEl.clientWidth - docEl.getBoundingClientRect().width;
+
+  if (reserved > 0 && reserved <= STABLE_SCROLLBAR_MAX_WIDTH) {
+    const gutter = win.getComputedStyle?.(docEl).scrollbarGutter;
+    if (gutter && gutter !== "auto") width -= reserved;
   }
 
   return toBoundary({ x, y, width, height });
@@ -275,8 +275,10 @@ function getFloatingSize(floating) {
   return { width: width || rect.width, height: height || rect.height };
 }
 
-/* Per-document update trackers. A document gets one captured scroll listener,
- * one resize listener, and one ResizeObserver regardless of subscription count. */
+/* Per-document update trackers. A document gets one captured scroll listener and
+ * one resize listener regardless of subscription count. Size observation is per
+ * subscription instead: sharing it would need reference counting and per-element
+ * priming for a page that rarely holds more than a couple of open surfaces. */
 const trackers = new WeakMap();
 
 function createTracker(doc) {
@@ -285,33 +287,21 @@ function createTracker(doc) {
 
   /** @type {Set<Subscription>} */
   const subscriptions = new Set();
-  /** @type {Map<Element, {count: number, primed: boolean}>} */
-  const observed = new Map();
-  /** @type {Map<Subscription, Map<AutoUpdateDetail["type"], {targets: Set<EventTarget>, timeStamp: number}>>} */
+  /** @type {Map<Subscription, Set<AutoUpdateDetail["type"]>>} */
   const pending = new Map();
 
   const ResizeObserverCtor = win.ResizeObserver;
-  /** @type {ResizeObserver | null} */
-  let resizeObserver = null;
   let tick = false;
   let listening = false;
   const visualViewport = win.visualViewport;
 
-  function queue(subscription, type, source) {
-    let notifications = pending.get(subscription);
-    if (!notifications) {
-      notifications = new Map();
-      pending.set(subscription, notifications);
+  function queue(subscription, type) {
+    let types = pending.get(subscription);
+    if (!types) {
+      types = new Set();
+      pending.set(subscription, types);
     }
-
-    let notification = notifications.get(type);
-    if (!notification) {
-      notification = { targets: new Set(), timeStamp: 0 };
-      notifications.set(type, notification);
-    }
-
-    if (source?.target) notification.targets.add(source.target);
-    notification.timeStamp = Math.max(notification.timeStamp, source?.timeStamp || 0);
+    types.add(type);
   }
 
   function scheduleFlush() {
@@ -324,70 +314,43 @@ function createTracker(doc) {
 
       for (const [subscription, types] of notifications) {
         if (!subscriptions.has(subscription) || !subscription.floating.isConnected) continue;
-        for (const [type, detail] of types) subscription.callback({ type, ...detail });
+        for (const type of types) subscription.callback({ type });
       }
     });
   }
 
-  function notifyAll(type, source) {
-    for (const subscription of subscriptions) queue(subscription, type, source);
+  function notifyAll(type) {
+    for (const subscription of subscriptions) queue(subscription, type);
     scheduleFlush();
   }
 
-  function queueElementResize(source) {
-    for (const subscription of subscriptions) {
-      if (subscription.reference === source.target || subscription.floating === source.target) {
-        queue(subscription, "element-resize", source);
-      }
-    }
-  }
+  function observeSizes(subscription) {
+    if (!ResizeObserverCtor) return null;
 
-  function getResizeObserver() {
-    if (resizeObserver || !ResizeObserverCtor) return resizeObserver;
-
-    resizeObserver = new ResizeObserverCtor((entries) => {
-      let queued = false;
+    const primed = new Set();
+    const observer = new ResizeObserverCtor((entries) => {
+      /* ResizeObserver reports every newly observed element once, before any
+       * size change happened. Swallow that delivery instead of unobserving and
+       * re-observing, which would report the element again on every frame for
+       * as long as the subscription lives. */
+      let changed = false;
       for (const entry of entries) {
-        /* ResizeObserver reports every newly observed element once, before any
-         * size change happened. Swallow that delivery instead of unobserving
-         * and re-observing, which would report the element again on every
-         * frame for as long as the subscription lives. */
-        const state = observed.get(entry.target);
-        if (state && !state.primed) {
-          state.primed = true;
-          continue;
-        }
-        queueElementResize(entry);
-        queued = true;
+        if (primed.has(entry.target)) changed = true;
+        else primed.add(entry.target);
       }
-      if (queued) scheduleFlush();
+      if (!changed) return;
+      queue(subscription, "element-resize");
+      scheduleFlush();
     });
-    return resizeObserver;
+
+    const { reference, floating } = subscription;
+    if (reference) observer.observe(reference);
+    if (floating !== reference) observer.observe(floating);
+    return observer;
   }
 
-  function observe(element) {
-    const state = observed.get(element);
-    if (state) {
-      state.count += 1;
-      return;
-    }
-    observed.set(element, { count: 1, primed: false });
-    getResizeObserver()?.observe(element);
-  }
-
-  function unobserve(element) {
-    const state = observed.get(element);
-    if (!state) return;
-    if (state.count > 1) {
-      state.count -= 1;
-      return;
-    }
-    observed.delete(element);
-    resizeObserver?.unobserve(element);
-  }
-
-  const onScroll = (event) => notifyAll("scroll", event);
-  const onResize = (event) => notifyAll("resize", event);
+  const onScroll = () => notifyAll("scroll");
+  const onResize = () => notifyAll("resize");
 
   function startListening() {
     if (listening) return;
@@ -412,8 +375,7 @@ function createTracker(doc) {
       const subscription = { reference, floating, callback };
       subscriptions.add(subscription);
       startListening();
-      if (reference) observe(reference);
-      if (floating !== reference) observe(floating);
+      const observer = observeSizes(subscription);
 
       let stopped = false;
       return () => {
@@ -421,8 +383,7 @@ function createTracker(doc) {
         stopped = true;
         subscriptions.delete(subscription);
         pending.delete(subscription);
-        if (reference) unobserve(reference);
-        if (floating !== reference) unobserve(floating);
+        observer?.disconnect();
         if (subscriptions.size === 0) stopListening();
       };
     },

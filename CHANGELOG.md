@@ -14,4 +14,12 @@
 - Make `shift: false` disable shifting entirely instead of still clamping wide elements.
 - Prefer boundary containment over `shiftPadding` when the element cannot fit inside it.
 - Return `false` instead of throwing when the document has no browsing context.
+- Narrow the viewport boundary only for a declared `scrollbar-gutter`, instead of for
+  any narrowing of the document box within a scrollbar-sized range.
+- Emit optional option types as `T | undefined` so consumers can enable
+  `exactOptionalPropertyTypes`.
+- Give each subscription its own `ResizeObserver` instead of sharing one per document
+  behind reference counting, with no change to what is observed.
+- Reduce the `autoUpdate()` callback detail to `type`; `targets` and `timeStamp` had no
+  consumer and forced a nested notification store.
 - Keep imports SSR-safe and runtime dependency-free.

@@ -35,7 +35,8 @@ New public API needs a concrete use case in more than one consumer.
 - `left` and `right` stay physical in RTL; `start`/`end` alignments follow direction.
 - Consumers own width, visibility, positioning mode, lifecycle, focus, and dismissal.
 - `autoUpdate()` observes both reference and floating element when ResizeObserver exists.
-- Scroll/resize work is shared and frame-batched per document.
+- Scroll/resize work is shared and frame-batched per document; size observation is per
+  subscription.
 - Closed surfaces should stop tracking; the package does not decide when that happens.
 
 ## Tests

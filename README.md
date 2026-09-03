@@ -125,6 +125,12 @@ consumer side:
 
 The package does **not** set `position: fixed`; that remains consumer policy.
 
+Because the written coordinates are viewport coordinates, the floating element must
+not sit inside an ancestor that establishes a containing block for fixed elements --
+a `transform`, `filter`, `backdrop-filter`, `perspective`, a `will-change` naming one
+of those, or `contain: layout | paint | strict | content`. Render the surface as a
+direct child of `<body>`, or in the top layer.
+
 #### Main axis and cross axis
 
 `flip` acts on the main axis of the placement, `shift` on the cross axis. For
@@ -161,9 +167,7 @@ The callback receives:
 
 ```js
 {
-  type: "scroll" | "resize" | "element-resize",
-  targets: Set,
-  timeStamp: 0,
+  type: "scroll" | "resize" | "element-resize";
 }
 ```
 
@@ -174,10 +178,16 @@ Tracking covers:
 - `ResizeObserver` changes to the reference, when one is supplied;
 - `ResizeObserver` changes to the floating element.
 
-Listeners and the `ResizeObserver` are shared per document. Document/window listeners
-are detached when the last subscription is removed. Elements stay observed for the
-lifetime of the subscription; the delivery `ResizeObserver` emits for every newly
-observed element is not reported as `element-resize`.
+Scroll and viewport listeners are shared per document and detached when the last
+subscription is removed. Each subscription owns its `ResizeObserver`, watching the
+reference and the floating element for its whole lifetime; the delivery
+`ResizeObserver` emits for every newly observed element is not reported as
+`element-resize`.
+
+Tracking does **not** cover a reference that moves without resizing and without a
+scroll: a sibling collapsing above it, an animation, a font swap reflowing the page.
+There is no layout-shift observer. Call `reposition()` yourself after a layout change
+your own code caused.
 
 ## Hiding and re-showing
 
@@ -214,6 +224,11 @@ The package targets ES2022 and supports Chromium 99+, Firefox 98+, and Safari 15
 its functional browser floor. It assumes standard browser primitives such as
 `getBoundingClientRect`, `requestAnimationFrame`, and DOM events. `ResizeObserver` is
 used when available; scroll and viewport resize tracking still work without it.
+
+Viewport geometry accounts for a declared `scrollbar-gutter`, but not for
+`scrollbar-gutter: stable both-edges`, a scrollbar rendered on the inline start edge,
+or the CSS `zoom` property. `zoom` scales the viewport coordinates this package writes
+while leaving layout sizes unscaled, so a zoomed subtree is not supported.
 
 The source is not transpiled and no polyfills are included.
 
