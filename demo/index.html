@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>@lekoala/floating — cases</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --edge: color-mix(in srgb, CanvasText 25%, Canvas);
+      --muted: color-mix(in srgb, CanvasText 55%, Canvas);
+      --accent: color-mix(in srgb, CanvasText 12%, Canvas);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font: 15px/1.5 system-ui, sans-serif;
+      margin: 0;
+      padding: 2rem clamp(1rem, 4vw, 3rem) 6rem;
+      background: Canvas;
+      color: CanvasText;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      margin: 0 0 .25rem;
+    }
+
+    h2 {
+      font-size: 1rem;
+      margin: 2.5rem 0 .5rem;
+    }
+
+    p {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      max-width: 60ch;
+    }
+
+    button,
+    select,
+    input {
+      font: inherit;
+      color: inherit;
+    }
+
+    button,
+    select {
+      padding: .4rem .6rem;
+      border: 1px solid var(--edge);
+      border-radius: .35rem;
+      background: var(--accent);
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    code {
+      font-family: ui-monospace, monospace;
+      font-size: .85em;
+      background: var(--accent);
+      padding: .1rem .3rem;
+      border-radius: .25rem;
+    }
+
+    /* ── Floating surfaces ────────────────────────────── */
+
+    .popup {
+      position: fixed;
+      z-index: 10;
+      inline-size: max-content;
+      max-inline-size: 18rem;
+      padding: .6rem .75rem;
+      border: 1px solid var(--edge);
+      border-radius: .4rem;
+      background: Canvas;
+      color: CanvasText;
+      box-shadow: 0 .5rem 1.5rem rgb(0 0 0 / .18);
+    }
+
+    .popup[hidden] {
+      display: none;
+    }
+
+    /* `--arrow-x` / `--arrow-y` locate the reference center inside the floating
+       box, so the arrow tracks the anchor through alignment, realignment and
+       clamping. `clamp()` is consumer policy: it keeps the tip off the rounded
+       corners when the engine reports 0% or 100%. */
+    .popup[data-arrow]::after {
+      content: "";
+      position: absolute;
+      inline-size: .6rem;
+      block-size: .6rem;
+      background: inherit;
+      border: 1px solid var(--edge);
+      translate: -50% -50%;
+      transform: rotate(45deg);
+    }
+
+    .popup[data-arrow][data-placement^="bottom"]::after {
+      left: clamp(.7rem, var(--arrow-x, 50%), calc(100% - .7rem));
+      top: 0;
+      border-width: 1px 0 0 1px;
+    }
+
+    .popup[data-arrow][data-placement^="top"]::after {
+      left: clamp(.7rem, var(--arrow-x, 50%), calc(100% - .7rem));
+      top: 100%;
+      border-width: 0 1px 1px 0;
+    }
+
+    .popup[data-arrow][data-placement^="right"]::after {
+      top: clamp(.7rem, var(--arrow-y, 50%), calc(100% - .7rem));
+      left: 0;
+      border-width: 0 0 1px 1px;
+    }
+
+    .popup[data-arrow][data-placement^="left"]::after {
+      top: clamp(.7rem, var(--arrow-y, 50%), calc(100% - .7rem));
+      left: 100%;
+      border-width: 1px 1px 0 0;
+    }
+
+    /* ── Playground ───────────────────────────────────── */
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .75rem 1.25rem;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .controls label {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      white-space: nowrap;
+    }
+
+    .stage {
+      position: relative;
+      block-size: 22rem;
+      overflow: auto;
+      border: 1px dashed var(--edge);
+      border-radius: .5rem;
+      background:
+        repeating-linear-gradient(45deg, transparent 0 10px, var(--accent) 10px 11px);
+    }
+
+    .stage-inner {
+      inline-size: 200%;
+      block-size: 200%;
+      display: grid;
+      place-items: center;
+    }
+
+    .readout {
+      margin-top: .75rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: .4rem .75rem;
+      font-family: ui-monospace, monospace;
+      font-size: .8rem;
+      color: var(--muted);
+    }
+
+    .readout b {
+      font-weight: 600;
+      color: CanvasText;
+    }
+
+    /* ── Section blocks ───────────────────────────────── */
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4rem;
+      margin-bottom: 3.5rem;
+    }
+
+    .scope-box {
+      position: relative;
+      inline-size: min(100%, 26rem);
+      block-size: 11rem;
+      overflow: auto;
+      padding: 3rem 1rem;
+      border: 2px solid var(--edge);
+      border-radius: .5rem;
+    }
+
+    .context-zone {
+      display: grid;
+      place-items: center;
+      block-size: 8rem;
+      inline-size: min(100%, 26rem);
+      border: 1px dashed var(--edge);
+      border-radius: .5rem;
+      color: var(--muted);
+    }
+
+    .menu {
+      padding: .3rem;
+      min-inline-size: 11rem;
+    }
+
+    .menu ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .menu button {
+      display: block;
+      inline-size: 100%;
+      text-align: start;
+      border: 0;
+      background: none;
+      padding: .35rem .5rem;
+      border-radius: .25rem;
+    }
+
+    .menu button:hover {
+      background: var(--accent);
+    }
+
+    /* `--available-height` is written by reposition(); the consumer decides
+       what to do with it. */
+    .listbox {
+      padding: .25rem;
+      overflow-y: auto;
+      max-block-size: min(16rem, var(--available-height, 16rem));
+    }
+
+    .listbox ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .listbox li {
+      padding: .3rem .5rem;
+      border-radius: .25rem;
+    }
+
+    .listbox li:hover {
+      background: var(--accent);
+    }
+
+    .log {
+      font-family: ui-monospace, monospace;
+      font-size: .78rem;
+      color: var(--muted);
+      margin: 0;
+      padding: .5rem .75rem;
+      border: 1px solid var(--edge);
+      border-radius: .4rem;
+      min-block-size: 6.5rem;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>@lekoala/floating</h1>
+  <p>
+    Every behavior the package exposes, in one page. See
+    <a href="basic.html">basic.html</a> for the minimal integration.
+  </p>
+
+  <!-- ── 1. Playground ─────────────────────────────────────────────────── -->
+  <h2>1. Placement, distance, flip, shift</h2>
+  <p>
+    Scroll the dashed stage in both directions to push the anchor against an edge.
+    The panel flips on the main axis, realigns <code>start</code>/<code>end</code>,
+    then clamps as a last resort.
+  </p>
+
+  <div class="controls">
+    <label>placement
+      <select id="placement">
+        <optgroup label="bottom">
+          <option>bottom-start</option>
+          <option>bottom</option>
+          <option>bottom-end</option>
+        </optgroup>
+        <optgroup label="top">
+          <option>top-start</option>
+          <option>top</option>
+          <option>top-end</option>
+        </optgroup>
+        <optgroup label="right">
+          <option>right-start</option>
+          <option>right</option>
+          <option>right-end</option>
+        </optgroup>
+        <optgroup label="left">
+          <option>left-start</option>
+          <option>left</option>
+          <option>left-end</option>
+        </optgroup>
+      </select>
+    </label>
+    <label>distance
+      <input id="distance" type="range" min="0" max="32" value="8" style="inline-size: 6rem">
+      <output id="distance-out">8</output>
+    </label>
+    <label>shiftPadding
+      <input id="padding" type="range" min="0" max="48" value="4" style="inline-size: 6rem">
+      <output id="padding-out">4</output>
+    </label>
+    <label><input id="flip" type="checkbox" checked> flip</label>
+    <label><input id="shift" type="checkbox" checked> shift</label>
+    <label><input id="scope" type="checkbox"> scope to stage</label>
+    <label><input id="wide" type="checkbox"> wide panel</label>
+    <label><input id="rtl" type="checkbox"> RTL anchor</label>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="stage-inner">
+      <button id="anchor" type="button">Anchor</button>
+    </div>
+  </div>
+
+  <div id="panel" class="popup" data-arrow>
+    Physical side + logical alignment.<br>
+    <code id="panel-placement">bottom-start</code>
+  </div>
+
+  <div class="readout">
+    <span><b>data-placement</b> <span id="out-placement">—</span></span>
+    <span><b>--arrow-x</b> <span id="out-arrow-x">—</span></span>
+    <span><b>--arrow-y</b> <span id="out-arrow-y">—</span></span>
+    <span><b>--available-height</b> <span id="out-available">—</span></span>
+    <span><b>returned</b> <span id="out-result">—</span></span>
+  </div>
+
+  <!-- ── 2. Tooltip ────────────────────────────────────────────────────── -->
+  <h2>2. Tooltip (hover / focus, arrow follows the shift)</h2>
+  <p>Same primitive, different lifecycle policy. The consumer owns show/hide.</p>
+  <div class="row">
+    <button class="tip" type="button" data-tip="Positioned above, centered.">Tooltip</button>
+    <button class="tip" type="button" data-tip="Near the edge the arrow slides while the box stays inside the viewport.">Another one</button>
+  </div>
+  <div id="tooltip" class="popup" data-arrow hidden role="tooltip"></div>
+
+  <!-- ── 3. Combobox ───────────────────────────────────────────────────── -->
+  <h2>3. Anchor width + <code>--available-height</code></h2>
+  <p>
+    Width policy stays with the consumer. The list caps itself with
+    <code>--available-height</code>, so it never runs past the viewport edge.
+  </p>
+  <div class="row">
+    <button id="combo" type="button" style="inline-size: 16rem; text-align: start">Open a long list…</button>
+  </div>
+  <div id="listbox" class="popup listbox" hidden>
+    <ul id="listbox-items"></ul>
+  </div>
+
+  <!-- ── 4. Context menu ───────────────────────────────────────────────── -->
+  <h2>4. Point positioning (<code>repositionAt</code>)</h2>
+  <p>No DOM anchor: the reference is a viewport point.</p>
+  <div class="context-zone" id="context-zone">Right-click (or long-press) here</div>
+  <div id="menu" class="popup menu" hidden>
+    <ul>
+      <li><button type="button">Cut</button></li>
+      <li><button type="button">Copy</button></li>
+      <li><button type="button">Paste</button></li>
+      <li><button type="button">Delete</button></li>
+    </ul>
+  </div>
+
+  <!-- ── 5. Scope boundary ─────────────────────────────────────────────── -->
+  <h2>5. Scoped boundary</h2>
+  <p>
+    With <code>scope</code>, the panel is kept inside a specific element instead of
+    the visual viewport. Scroll the box to see the anchor leave the boundary —
+    <code>reposition()</code> then returns <code>false</code> and the consumer hides the surface.
+  </p>
+  <div class="scope-box" id="scope-box">
+    <div style="block-size: 18rem; display: grid; place-items: center">
+      <button id="scoped-anchor" type="button">Scoped anchor</button>
+    </div>
+  </div>
+  <div id="scoped-popup" class="popup" data-arrow hidden>Clamped to the bordered box.</div>
+  <p id="scoped-state" style="margin-top:.5rem"><code>reposition()</code> returned <b>-</b></p>
+
+  <!-- ── 6. RTL ────────────────────────────────────────────────────────── -->
+  <h2>6. RTL</h2>
+  <p>
+    <code>left</code>/<code>right</code> stay physical; <code>start</code>/<code>end</code>
+    follow the reference direction.
+  </p>
+  <p>
+    <code>bottom</code> centers the box on the anchor, so <code>--arrow-x</code> stays at
+    <code>50%</code> until the viewport pushes it. <code>bottom-start</code> aligns an
+    edge instead: the arrow has to move even with room to spare.
+  </p>
+  <div class="stack" dir="rtl">
+    <button id="rtl-anchor" type="button">bottom-start</button>
+    <button id="rtl-center-anchor" type="button">bottom</button>
+  </div>
+  <div id="rtl-popup" class="popup" data-arrow hidden dir="rtl">محاذاة من الحافة: الصندوق أوسع من الزر، لذلك يتحرك السهم ليشير إليه بدلاً من البقاء في المنتصف.</div>
+  <div id="rtl-center-popup" class="popup" data-arrow hidden dir="rtl">مركز على الزر: يبقى السهم في المنتصف ما لم تدفعه حافة الشاشة.</div>
+
+  <!-- ── 7. autoUpdate ─────────────────────────────────────────────────── -->
+  <h2>7. <code>autoUpdate</code> stream</h2>
+  <p>
+    Scroll, resize the window, or resize the panel below. Callbacks are batched per
+    animation frame and keep their event type.
+  </p>
+  <div class="row">
+    <div id="resizable" style="resize: both; overflow: auto; inline-size: 12rem; block-size: 5rem; border: 1px solid var(--edge); border-radius: .4rem; padding: .5rem">
+      Resize me
+    </div>
+    <pre class="log" id="log" style="flex: 1 1 20rem">waiting…</pre>
+  </div>
+
+  <div id="tracker" class="popup" data-arrow>Follows the box</div>
+
+  <script type="module">
+    import { autoUpdate, reposition, repositionAt } from "../src/floating.js";
+
+    const $ = (id) => document.getElementById(id);
+
+    /* Every surface below stays in the DOM while it tracks, so it has to honor
+     * the return value: `reposition()` reports false once the reference leaves
+     * the boundary, and a surface that ignores it stays frozen on screen. Hiding
+     * with `visibility` keeps the element measurable, unlike `hidden`. */
+    function place(reference, floating, options) {
+      const placed = reposition(reference, floating, options);
+      floating.style.visibility = placed ? "visible" : "hidden";
+      return placed;
+    }
+
+    /* ── 1. Playground ──────────────────────────────────────────────── */
+
+    const stage = $("stage");
+    const anchor = $("anchor");
+    const panel = $("panel");
+    const controls = {
+      placement: $("placement"),
+      distance: $("distance"),
+      padding: $("padding"),
+      flip: $("flip"),
+      shift: $("shift"),
+      scope: $("scope"),
+      wide: $("wide"),
+      rtl: $("rtl"),
+    };
+
+    function updatePanel() {
+      $("distance-out").value = controls.distance.value;
+      $("padding-out").value = controls.padding.value;
+      anchor.dir = controls.rtl.checked ? "rtl" : "";
+      panel.style.maxInlineSize = controls.wide.checked ? "30rem" : "18rem";
+
+      const result = place(anchor, panel, {
+        placement: controls.placement.value,
+        distance: Number(controls.distance.value),
+        shiftPadding: Number(controls.padding.value),
+        flip: controls.flip.checked,
+        shift: controls.shift.checked,
+        scope: controls.scope.checked ? stage : undefined,
+      });
+
+      const style = panel.style;
+      $("panel-placement").textContent = panel.dataset.placement ?? "—";
+      $("out-placement").textContent = panel.dataset.placement ?? "—";
+      $("out-arrow-x").textContent = style.getPropertyValue("--arrow-x") || "—";
+      $("out-arrow-y").textContent = style.getPropertyValue("--arrow-y") || "—";
+      $("out-available").textContent = style.getPropertyValue("--available-height") || "—";
+      $("out-result").textContent = String(result);
+    }
+
+    for (const control of Object.values(controls)) {
+      control.addEventListener("input", updatePanel);
+    }
+    // Scrolling the stage is a captured document scroll, so autoUpdate covers it.
+    updatePanel();
+    autoUpdate(anchor, panel, updatePanel);
+
+    /* ── 2. Tooltip ─────────────────────────────────────────────────── */
+
+    const tooltip = $("tooltip");
+    let stopTooltip = null;
+
+    function showTooltip(trigger) {
+      tooltip.textContent = trigger.dataset.tip;
+      tooltip.hidden = false;
+      const update = () => place(trigger, tooltip, { placement: "top", distance: 8 });
+      update();
+      stopTooltip = autoUpdate(trigger, tooltip, update);
+    }
+
+    function hideTooltip() {
+      tooltip.hidden = true;
+      stopTooltip?.();
+      stopTooltip = null;
+    }
+
+    for (const trigger of document.querySelectorAll(".tip")) {
+      trigger.addEventListener("pointerenter", () => showTooltip(trigger));
+      trigger.addEventListener("focus", () => showTooltip(trigger));
+      trigger.addEventListener("pointerleave", hideTooltip);
+      trigger.addEventListener("blur", hideTooltip);
+    }
+
+    /* ── 3. Combobox ────────────────────────────────────────────────── */
+
+    const combo = $("combo");
+    const listbox = $("listbox");
+    $("listbox-items").innerHTML = Array.from(
+      { length: 40 },
+      (_, i) => `<li>Option ${i + 1}</li>`,
+    ).join("");
+    let stopCombo = null;
+
+    function updateCombo() {
+      // Width is consumer policy; the engine only places the box.
+      listbox.style.inlineSize = `${combo.getBoundingClientRect().width}px`;
+      listbox.style.maxInlineSize = "none";
+      place(combo, listbox, { placement: "bottom-start", distance: 4 });
+    }
+
+    combo.addEventListener("click", () => {
+      if (!listbox.hidden) {
+        listbox.hidden = true;
+        stopCombo?.();
+        stopCombo = null;
+        return;
+      }
+      listbox.hidden = false;
+      updateCombo();
+      stopCombo = autoUpdate(combo, listbox, updateCombo);
+    });
+
+    /* ── 4. Context menu ────────────────────────────────────────────── */
+
+    const menu = $("menu");
+    let stopMenu = null;
+    let menuPoint = { x: 0, y: 0 };
+
+    function updateMenu() {
+      repositionAt(menuPoint.x, menuPoint.y, menu, { placement: "right-start", distance: 2 });
+    }
+
+    function closeMenu() {
+      menu.hidden = true;
+      stopMenu?.();
+      stopMenu = null;
+    }
+
+    $("context-zone").addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      menuPoint = { x: event.clientX, y: event.clientY };
+      menu.hidden = false;
+      updateMenu();
+      stopMenu?.();
+      // No DOM reference: pass null and keep scroll/resize tracking. A point is
+      // fixed to the viewport, not to content, so scrolling invalidates the menu
+      // instead of moving it -- closing is consumer policy, not engine policy.
+      stopMenu = autoUpdate(null, menu, (detail) => {
+        if (detail.type === "scroll") closeMenu();
+        else updateMenu();
+      });
+    });
+
+    document.addEventListener("pointerdown", (event) => {
+      if (!menu.hidden && !menu.contains(event.target)) closeMenu();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeMenu();
+    });
+
+    /* ── 5. Scoped boundary ─────────────────────────────────────────── */
+
+    const scopeBox = $("scope-box");
+    const scopedAnchor = $("scoped-anchor");
+    const scopedPopup = $("scoped-popup");
+
+    function updateScoped() {
+      // `reposition()` refuses to measure a hidden element, so an out-of-boundary
+      // surface is dimmed with `visibility` rather than the `hidden` attribute.
+      const placed = place(scopedAnchor, scopedPopup, {
+        placement: "bottom",
+        distance: 6,
+        scope: scopeBox,
+      });
+      $("scoped-state").lastElementChild.textContent = String(placed);
+    }
+
+    scopedPopup.hidden = false;
+    updateScoped();
+    autoUpdate(scopedAnchor, scopedPopup, updateScoped);
+
+    /* ── 6. RTL ─────────────────────────────────────────────────────── */
+
+    const rtlAnchor = $("rtl-anchor");
+    const rtlPopup = $("rtl-popup");
+    const updateRtl = () =>
+      place(rtlAnchor, rtlPopup, { placement: "bottom-start", distance: 6 });
+
+    rtlPopup.hidden = false;
+    updateRtl();
+    autoUpdate(rtlAnchor, rtlPopup, updateRtl);
+
+    const rtlCenterAnchor = $("rtl-center-anchor");
+    const rtlCenterPopup = $("rtl-center-popup");
+    const updateRtlCenter = () =>
+      place(rtlCenterAnchor, rtlCenterPopup, { placement: "bottom", distance: 6 });
+
+    rtlCenterPopup.hidden = false;
+    updateRtlCenter();
+    autoUpdate(rtlCenterAnchor, rtlCenterPopup, updateRtlCenter);
+
+    /* ── 7. autoUpdate stream ───────────────────────────────────────── */
+
+    const log = $("log");
+    const resizable = $("resizable");
+    const tracker = $("tracker");
+    const entries = [];
+
+    const updateTracker = () =>
+      place(resizable, tracker, { placement: "right", distance: 8 });
+
+    updateTracker();
+    autoUpdate(resizable, tracker, (detail) => {
+      updateTracker();
+      entries.unshift(
+        `${detail.type.padEnd(15)} targets:${detail.targets.size} t:${Math.round(detail.timeStamp)}`,
+      );
+      entries.length = Math.min(entries.length, 6);
+      log.textContent = entries.join("\n");
+    });
+  </script>
+</body>
+
+</html>

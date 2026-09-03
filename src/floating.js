@@ -14,8 +14,8 @@
  * @property {Placement} [placement="bottom-start"] Preferred physical side and logical alignment.
  * @property {number} [distance=0] Distance in CSS pixels between reference and floating element.
  * @property {boolean} [flip=true] Flip to the opposite side when the preferred side overflows.
- * @property {boolean} [shift=true] Shift inside the active boundary when needed.
- * @property {number} [shiftPadding=4] Minimum distance in CSS pixels from the boundary while shifting.
+ * @property {boolean} [shift=true] Keep the element inside the active boundary on the cross axis.
+ * @property {number} [shiftPadding=4] Minimum distance in CSS pixels from the boundary while shifting, dropped when the element cannot fit inside it.
  * @property {HTMLElement} [scope] Optional clipping/positioning boundary instead of the visual viewport.
  */
 
@@ -123,10 +123,22 @@ function toBoundary(rect) {
   };
 }
 
+/* `CSS.supports()` is stable per window; caching keeps `reposition()` free of
+ * repeated selector parsing without an import-time global lookup. */
+/** @type {WeakMap<object, boolean>} */
+const dirSelectorSupport = new WeakMap();
+
 /** @param {PositionReference} element */
 function supportsDirSelector(element) {
-  const css = element.ownerDocument?.defaultView?.CSS;
-  return typeof css?.supports === "function" && css.supports("selector(:dir(rtl))");
+  const win = element.ownerDocument?.defaultView;
+  if (!win) return false;
+  let supported = dirSelectorSupport.get(win);
+  if (supported === undefined) {
+    const css = win.CSS;
+    supported = typeof css?.supports === "function" && css.supports("selector(:dir(rtl))");
+    dirSelectorSupport.set(win, supported);
+  }
+  return supported;
 }
 
 /** @param {PositionReference} element */
@@ -154,7 +166,7 @@ const NARROW_INLINE_FLIP_FALLBACK = 128;
 
 function getViewportBoundary(doc) {
   const win = doc.defaultView;
-  if (!win) throw new Error("@lekoala/floating requires a browser document at call time");
+  if (!win) return null;
 
   const docEl = doc.documentElement;
   const visualViewport = win.visualViewport;
@@ -183,6 +195,30 @@ function getBoundary(reference, options) {
   return toBoundary({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
 }
 
+/* Boundary containment wins over `shiftPadding`: when the floating element does
+ * not fit inside the padded boundary the padding is dropped, and when it is
+ * larger than the boundary itself it is aligned to the boundary start. Consumers
+ * that cannot accept overflow own the sizing policy. */
+function clampToBoundary(position, size, start, end, padding) {
+  const paddedMin = start + padding;
+  const paddedMax = end - size - padding;
+  const fitsPadded = paddedMax >= paddedMin;
+  const min = fitsPadded ? paddedMin : start;
+  const max = fitsPadded ? paddedMax : end - size;
+  return Math.max(min, Math.min(position, max));
+}
+
+/* Where the reference center falls inside the floating box, as a percentage of
+ * its size. This covers alignment, realignment and clamping in one value: a
+ * centered placement lands on 50%, an aligned one points at the reference
+ * instead of at the middle of the box. Values stay inside the box so the arrow
+ * remains drawable, and are rounded to keep the custom property short. */
+function arrowPercent(referenceCenter, boxStart, size) {
+  if (!size) return 50;
+  const percent = ((referenceCenter - boxStart) / size) * 100;
+  return Math.round(Math.min(100, Math.max(0, percent)) * 1000) / 1000;
+}
+
 function isOutsideBoundary(rect, boundary) {
   return (
     rect.right < boundary.x ||
@@ -208,12 +244,14 @@ function isVisible(element) {
   return element.getClientRects().length > 0;
 }
 
+/* Layout size is preferred so a transformed floating element is measured by the
+ * box it occupies, not by its painted rect. */
 function getFloatingSize(floating) {
+  const width = floating.offsetWidth;
+  const height = floating.offsetHeight;
+  if (width && height) return { width, height };
   const rect = floating.getBoundingClientRect();
-  return {
-    width: floating.offsetWidth || rect.width,
-    height: floating.offsetHeight || rect.height,
-  };
+  return { width: width || rect.width, height: height || rect.height };
 }
 
 /* Per-document update trackers. A document gets one captured scroll listener,
@@ -222,11 +260,11 @@ const trackers = new WeakMap();
 
 function createTracker(doc) {
   const win = doc.defaultView;
-  if (!win) throw new Error("@lekoala/floating requires a browser document at call time");
+  if (!win) throw new TypeError("floating must belong to a document with a browsing context");
 
   /** @type {Set<{reference: Element | null, floating: HTMLElement, callback: (detail: AutoUpdateDetail) => void}>} */
   const subscriptions = new Set();
-  /** @type {Map<Element, number>} */
+  /** @type {Map<Element, {count: number, primed: boolean}>} */
   const observed = new Map();
   /** @type {Map<{reference: Element | null, floating: HTMLElement, callback: (detail: AutoUpdateDetail) => void}, Map<AutoUpdateDetail["type"], {targets: Set<EventTarget>, timeStamp: number}>>} */
   const pending = new Map();
@@ -275,44 +313,56 @@ function createTracker(doc) {
     scheduleFlush();
   }
 
-  function notifyElementResize(source) {
+  function queueElementResize(source) {
     for (const subscription of subscriptions) {
       if (subscription.reference === source.target || subscription.floating === source.target) {
         queue(subscription, "element-resize", source);
       }
     }
-    scheduleFlush();
   }
 
   function getResizeObserver() {
     if (resizeObserver || !ResizeObserverCtor) return resizeObserver;
 
-    resizeObserver = new ResizeObserverCtor((entries, observer) => {
+    resizeObserver = new ResizeObserverCtor((entries) => {
+      let queued = false;
       for (const entry of entries) {
-        observer.unobserve(entry.target);
-        notifyElementResize(entry);
-        win.requestAnimationFrame(() => {
-          if ((observed.get(entry.target) || 0) > 0) observer.observe(entry.target);
-        });
+        /* ResizeObserver reports every newly observed element once, before any
+         * size change happened. Swallow that delivery instead of unobserving
+         * and re-observing, which would report the element again on every
+         * frame for as long as the subscription lives. */
+        const state = observed.get(entry.target);
+        if (state && !state.primed) {
+          state.primed = true;
+          continue;
+        }
+        queueElementResize(entry);
+        queued = true;
       }
+      if (queued) scheduleFlush();
     });
     return resizeObserver;
   }
 
   function observe(element) {
-    const count = observed.get(element) || 0;
-    observed.set(element, count + 1);
-    if (count === 0) getResizeObserver()?.observe(element);
+    const state = observed.get(element);
+    if (state) {
+      state.count += 1;
+      return;
+    }
+    observed.set(element, { count: 1, primed: false });
+    getResizeObserver()?.observe(element);
   }
 
   function unobserve(element) {
-    const count = observed.get(element) || 0;
-    if (count <= 1) {
-      observed.delete(element);
-      resizeObserver?.unobserve(element);
-    } else {
-      observed.set(element, count - 1);
+    const state = observed.get(element);
+    if (!state) return;
+    if (state.count > 1) {
+      state.count -= 1;
+      return;
     }
+    observed.delete(element);
+    resizeObserver?.unobserve(element);
   }
 
   const onScroll = (event) => notifyAll("scroll", event);
@@ -398,12 +448,13 @@ export function autoUpdate(reference, floating, callback) {
  *
  * The floating element should normally use `position: fixed`. This function
  * writes `left`, `top`, `data-placement`, `--arrow-x`, `--arrow-y`, and
- * `--available-height` to the floating element.
+ * `--available-height` to the floating element. Arrow percentages locate the
+ * reference center inside the floating box and stay within `0%`-`100%`.
  *
  * @param {PositionReference} reference
  * @param {HTMLElement} floating
  * @param {RepositionOptions} [options]
- * @returns {boolean} False when positioning cannot be performed (hidden floating element, missing rect, or reference outside boundary).
+ * @returns {boolean} False when positioning cannot be performed: hidden floating element, missing reference rect, reference outside the boundary, or a document without a browsing context.
  */
 export function reposition(reference, floating, options = {}) {
   if (!isVisible(floating)) return false;
@@ -420,7 +471,7 @@ export function reposition(reference, floating, options = {}) {
   if (!referenceRect) return false;
 
   const boundary = getBoundary(reference, options);
-  if (isOutsideBoundary(referenceRect, boundary)) return false;
+  if (!boundary || isOutsideBoundary(referenceRect, boundary)) return false;
 
   const floatingRect = getFloatingSize(floating);
   const minBoundaryX = boundary.x;
@@ -480,37 +531,35 @@ export function reposition(reference, floating, options = {}) {
     }
   }
 
-  let arrowX = 50;
-  if (shift || floatingRect.width > referenceRect.width) {
-    const minX = minBoundaryX + shiftPadding;
-    const maxX = maxBoundaryX - floatingRect.width - shiftPadding;
-
-    if (coords.x < minX) {
-      const total = minX - coords.x;
-      coords.x = minX;
-      arrowX = 50 - (total / floatingRect.width) * 100;
-    } else if (coords.x > maxX) {
-      const total = maxX - coords.x;
-      coords.x = Math.max(minBoundaryX, maxX);
-      arrowX = 50 + (total / floatingRect.width) * 100;
+  if (shift) {
+    coords.x = clampToBoundary(
+      coords.x,
+      floatingRect.width,
+      minBoundaryX,
+      maxBoundaryX,
+      shiftPadding,
+    );
+    if (axis === "y") {
+      coords.y = clampToBoundary(
+        coords.y,
+        floatingRect.height,
+        minBoundaryY,
+        maxBoundaryY,
+        shiftPadding,
+      );
     }
   }
 
-  let arrowY = 50;
-  if (axis === "y" && (shift || floatingRect.height > referenceRect.height)) {
-    const minY = minBoundaryY + shiftPadding;
-    const maxY = maxBoundaryY - floatingRect.height - shiftPadding;
-
-    if (coords.y < minY) {
-      const total = minY - coords.y;
-      coords.y = minY;
-      arrowY = 50 - (total / floatingRect.height) * 100;
-    } else if (coords.y > maxY) {
-      const total = maxY - coords.y;
-      coords.y = Math.max(minBoundaryY, maxY);
-      arrowY = 50 + (total / floatingRect.height) * 100;
-    }
-  }
+  const arrowX = arrowPercent(
+    referenceRect.x + referenceRect.width / 2,
+    coords.x,
+    floatingRect.width,
+  );
+  const arrowY = arrowPercent(
+    referenceRect.y + referenceRect.height / 2,
+    coords.y,
+    floatingRect.height,
+  );
 
   const availableHeight = getAvailableHeight(referenceRect, side, boundary, distance, shiftPadding);
   floating.style.setProperty("--arrow-x", `${arrowX}%`);
@@ -538,7 +587,7 @@ export function repositionAt(x, y, floating, options = {}) {
   const doc = floating.ownerDocument;
   const docEl = doc.documentElement;
   const win = doc.defaultView;
-  if (!win) throw new Error("@lekoala/floating requires a browser document at call time");
+  if (!win) return false;
 
   const direction = doc.dir || docEl?.dir || win.getComputedStyle?.(docEl).direction || "";
   const point = new win.DOMRect(x, y, 0, 0);

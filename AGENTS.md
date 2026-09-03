@@ -44,13 +44,15 @@ Any geometry change must cover the relevant edge cases:
 
 - preferred placement;
 - flip;
-- shift/clamping;
+- shift/clamping, including boundaries the element cannot fit inside;
+- arrow percentages;
 - RTL;
 - visual viewport;
 - scoped boundary;
 - point positioning;
 - transformed floating elements measured by layout size;
 - reference resize and floating resize;
-- cleanup and listener batching.
+- cleanup, listener sharing, and listener detachment;
+- the initial `ResizeObserver` delivery, which is not a resize.
 
 Run `npm run check` before publishing.

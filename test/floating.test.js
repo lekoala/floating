@@ -6,6 +6,7 @@ let window;
 let document;
 let resizeCallback;
 let resizeObserver;
+let resizeObserveCalls = 0;
 const resizeObserved = new Set();
 
 function installDOM() {
@@ -30,6 +31,7 @@ function installDOM() {
     }
 
     observe(element) {
+      resizeObserveCalls += 1;
       resizeObserved.add(element);
     }
 
@@ -112,11 +114,12 @@ afterEach(() => {
   document.body.replaceChildren();
   document.documentElement.dir = "";
   document.body.style.margin = "";
+  delete document.body.clientWidth;
   resizeObserved.clear();
   delete window.visualViewport;
 });
 
-const floatingModule = import(`../src/index.js?test=${Date.now()}`);
+const floatingModule = import(`../src/floating.js?test=${Date.now()}`);
 
 async function api() {
   return floatingModule;
@@ -141,7 +144,8 @@ test("reposition sets coordinates, placement, and available height", async () =>
   assert.equal(float.style.left, "100px");
   assert.equal(float.style.top, "132px");
   assert.equal(float.dataset.placement, "bottom-start");
-  assert.equal(float.style.getPropertyValue("--arrow-x"), "50%");
+  // The box is edge-aligned, not centered: the arrow points at the reference.
+  assert.equal(float.style.getPropertyValue("--arrow-x"), "25%");
   assert.equal(float.style.getPropertyValue("--available-height"), "632px");
 });
 
@@ -186,7 +190,8 @@ test("reposition shifts side placements on the y axis", async () => {
 
   reposition(ref, float, { placement: "right", distance: 8 });
   assert.equal(float.style.top, "664px");
-  assert.equal(float.style.getPropertyValue("--arrow-y"), "24%");
+  // The box was pushed up by 26px, so the reference sits below its center.
+  assert.equal(float.style.getPropertyValue("--arrow-y"), "76%");
 });
 
 test("reposition honors a scoped boundary", async () => {
@@ -308,6 +313,12 @@ test("autoUpdate reports reference and floating element resize", async () => {
   const calls = [];
   const stop = autoUpdate(ref, float, (detail) => calls.push(detail));
 
+  // ResizeObserver reports every newly observed element once before any resize.
+  resizeCallback([{ target: ref }, { target: float }], resizeObserver);
+  await nextFrame();
+  await nextFrame();
+  assert.deepEqual(calls, []);
+
   resizeCallback([{ target: ref }], resizeObserver);
   await nextFrame();
   await nextFrame();
@@ -407,4 +418,368 @@ test("autoUpdate tracks visual viewport scroll and resize", async () => {
   assert.equal(calls[1].targets.has(visualViewport), true);
   stop();
   otherWindow.close();
+});
+
+test("reposition subtracts a stable scrollbar from the viewport boundary", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.style.margin = "0";
+  Object.defineProperty(document.body, "clientWidth", { configurable: true, value: 1009 });
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 950, y: 100, width: 60, height: 24 });
+  mockRect(float, { x: 0, y: 0, width: 120, height: 80 });
+
+  reposition(ref, float, { placement: "bottom", distance: 8 });
+  assert.equal(float.style.left, "885px");
+});
+
+test("reposition falls back to top when a side placement cannot fit inline", async () => {
+  const { reposition } = await api();
+  setViewport(300, 768);
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 300, width: 40, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 260, height: 100 });
+
+  reposition(ref, float, { placement: "right" });
+  assert.equal(float.dataset.placement, "top");
+  assert.equal(float.style.left, "4px");
+  assert.equal(float.style.top, "200px");
+  assert.equal(float.style.getPropertyValue("--arrow-x"), "44.615%");
+});
+
+test("reposition realigns start to end instead of clamping", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 960, y: 100, width: 40, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 200, height: 50 });
+
+  reposition(ref, float, { placement: "bottom-start" });
+  assert.equal(float.dataset.placement, "bottom-end");
+  assert.equal(float.style.left, "800px");
+  assert.equal(float.style.top, "120px");
+  // Realigned to the end: the reference now sits near the far edge of the box.
+  assert.equal(float.style.getPropertyValue("--arrow-x"), "90%");
+});
+
+test("reposition reports arrow offset when clamped to the boundary", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 990, y: 100, width: 20, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 200, height: 50 });
+
+  reposition(ref, float, { placement: "bottom" });
+  assert.equal(float.style.left, "820px");
+  // The box was pushed left by 80px, so the reference sits right of its center.
+  assert.equal(float.style.getPropertyValue("--arrow-x"), "90%");
+});
+
+test("reposition honors shiftPadding", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 990, y: 100, width: 20, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 200, height: 50 });
+
+  reposition(ref, float, { placement: "bottom", shiftPadding: 20 });
+  assert.equal(float.style.left, "804px");
+});
+
+test("flip: false keeps the preferred side even when it overflows", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 730, width: 60, height: 24 });
+  mockRect(float, { x: 0, y: 0, width: 120, height: 80 });
+
+  reposition(ref, float, { placement: "bottom-start", distance: 4, flip: false });
+  assert.equal(float.dataset.placement, "bottom-start");
+  assert.equal(float.style.top, "758px");
+});
+
+test("shift: false leaves the element where the placement puts it", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 960, y: 100, width: 40, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 200, height: 50 });
+
+  reposition(ref, float, { placement: "bottom-start", shift: false });
+  assert.equal(float.dataset.placement, "bottom-start");
+  assert.equal(float.style.left, "960px");
+  assert.equal(float.style.getPropertyValue("--arrow-x"), "10%");
+
+  reposition(ref, float, { placement: "bottom-start" });
+  assert.equal(float.dataset.placement, "bottom-end");
+  assert.equal(float.style.left, "800px");
+});
+
+test("reposition reports available height above a top placement", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 400, width: 60, height: 24 });
+  mockRect(float, { x: 0, y: 0, width: 120, height: 80 });
+
+  reposition(ref, float, { placement: "top", distance: 8 });
+  assert.equal(float.dataset.placement, "top");
+  assert.equal(float.style.getPropertyValue("--available-height"), "388px");
+});
+
+test("reposition returns false when the reference is outside a scoped boundary", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML =
+    '<div id="scope"><div id="float"></div></div><button id="ref"></button>';
+  const scope = document.getElementById("scope");
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(scope, { x: 50, y: 50, width: 300, height: 200 });
+  mockRect(ref, { x: 400, y: 100, width: 40, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 120, height: 60 });
+
+  assert.equal(reposition(ref, float, { placement: "bottom-start", scope }), false);
+  assert.equal(float.style.left, "");
+});
+
+test("repositionAt follows document direction for start alignment", async () => {
+  const { repositionAt } = await api();
+  setViewport();
+  document.body.innerHTML = '<div id="float"></div>';
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 100, height: 50 });
+
+  repositionAt(200, 160, float, { placement: "bottom-start" });
+  assert.equal(float.style.left, "200px");
+
+  document.documentElement.dir = "rtl";
+  repositionAt(200, 160, float, { placement: "bottom-start" });
+  assert.equal(float.style.left, "100px");
+});
+
+test("autoUpdate ignores the initial ResizeObserver delivery and keeps observing", async () => {
+  const { autoUpdate } = await api();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  const calls = [];
+  const stop = autoUpdate(ref, float, (detail) => calls.push(detail.type));
+  const observeCalls = resizeObserveCalls;
+
+  resizeCallback([{ target: ref }, { target: float }], resizeObserver);
+  await nextFrame();
+  await nextFrame();
+  assert.deepEqual(calls, []);
+
+  resizeCallback([{ target: float }], resizeObserver);
+  await nextFrame();
+  await nextFrame();
+  assert.deepEqual(calls, ["element-resize"]);
+
+  // Elements stay observed: no unobserve/re-observe cycle per delivery.
+  assert.equal(resizeObserveCalls, observeCalls);
+  assert.equal(resizeObserved.has(ref), true);
+  assert.equal(resizeObserved.has(float), true);
+  stop();
+});
+
+test("autoUpdate observes a shared element once and releases it after the last stop", async () => {
+  const { autoUpdate } = await api();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  const calls = [];
+  const observeCalls = resizeObserveCalls;
+  const stopA = autoUpdate(ref, float, () => calls.push("a"));
+  const stopB = autoUpdate(ref, float, () => calls.push("b"));
+
+  assert.equal(resizeObserveCalls - observeCalls, 2);
+
+  window.dispatchEvent(new window.Event("resize"));
+  await nextFrame();
+  assert.deepEqual(calls, ["a", "b"]);
+
+  stopA();
+  assert.equal(resizeObserved.has(float), true);
+  stopB();
+  assert.equal(resizeObserved.has(ref), false);
+  assert.equal(resizeObserved.has(float), false);
+});
+
+test("autoUpdate does not deliver an event queued before the subscription", async () => {
+  const { autoUpdate } = await api();
+  document.body.innerHTML = '<div id="early"></div><div id="late"></div>';
+  const early = document.getElementById("early");
+  const late = document.getElementById("late");
+  const earlyCalls = [];
+  const lateCalls = [];
+  const stopEarly = autoUpdate(null, early, (detail) => earlyCalls.push(detail.type));
+
+  document.dispatchEvent(new window.Event("scroll"));
+  const stopLate = autoUpdate(null, late, (detail) => lateCalls.push(detail.type));
+  await nextFrame();
+
+  assert.deepEqual(earlyCalls, ["scroll"]);
+  assert.deepEqual(lateCalls, []);
+  stopEarly();
+  stopLate();
+});
+
+test("autoUpdate shares document listeners and detaches them with the last subscription", async () => {
+  const { autoUpdate } = await api();
+  const otherWindow = new Window({ url: "https://listeners.test/" });
+  const otherDocument = otherWindow.document;
+  otherWindow.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+  const added = [];
+  const removed = [];
+  const nativeAdd = otherDocument.addEventListener.bind(otherDocument);
+  const nativeRemove = otherDocument.removeEventListener.bind(otherDocument);
+  otherDocument.addEventListener = (type, ...rest) => {
+    added.push(type);
+    return nativeAdd(type, ...rest);
+  };
+  otherDocument.removeEventListener = (type, ...rest) => {
+    removed.push(type);
+    return nativeRemove(type, ...rest);
+  };
+
+  const first = otherDocument.createElement("div");
+  const second = otherDocument.createElement("div");
+  otherDocument.body.append(first, second);
+  const stopFirst = autoUpdate(null, first, () => {});
+  const stopSecond = autoUpdate(null, second, () => {});
+
+  assert.deepEqual(added, ["scroll"]);
+  stopFirst();
+  assert.deepEqual(removed, []);
+  stopSecond();
+  assert.deepEqual(removed, ["scroll"]);
+  otherWindow.close();
+});
+
+test("autoUpdate rejects invalid arguments", async () => {
+  const { autoUpdate } = await api();
+  document.body.innerHTML = '<div id="float"></div>';
+  const float = document.getElementById("float");
+
+  assert.throws(() => autoUpdate(null, null, () => {}), TypeError);
+  assert.throws(() => autoUpdate(null, float, null), TypeError);
+});
+
+test("reposition drops shiftPadding when the element cannot fit inside it", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML =
+    '<div id="scope"><div id="float"></div></div><button id="ref"></button>';
+  const scope = document.getElementById("scope");
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(scope, { x: 50, y: 50, width: 200, height: 200 });
+  mockRect(ref, { x: 100, y: 100, width: 20, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 196, height: 60 });
+
+  // 196 + 2 * 4 does not fit in a 200px boundary: containment wins over padding.
+  reposition(ref, float, { placement: "bottom", scope });
+  assert.equal(float.style.left, "50px");
+});
+
+test("reposition aligns an oversized element to the boundary start", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML =
+    '<div id="scope"><div id="float"></div></div><button id="ref"></button>';
+  const scope = document.getElementById("scope");
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(scope, { x: 50, y: 50, width: 200, height: 200 });
+  mockRect(ref, { x: 100, y: 100, width: 20, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 400, height: 60 });
+
+  reposition(ref, float, { placement: "bottom", scope });
+  assert.equal(float.style.left, "50px");
+  assert.equal(float.style.getPropertyValue("--arrow-x"), "15%");
+});
+
+test("reposition keeps arrow percentages inside the floating box", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML =
+    '<div id="scope"><div id="float"></div></div><button id="ref"></button>';
+  const scope = document.getElementById("scope");
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(scope, { x: 50, y: 50, width: 200, height: 200 });
+  mockRect(ref, { x: 240, y: 100, width: 20, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 100, height: 60 });
+
+  // The reference ends up past the clamped box, so the arrow stops at its edge.
+  reposition(ref, float, { placement: "bottom", scope });
+  assert.equal(float.style.left, "146px");
+  assert.equal(float.style.getPropertyValue("--arrow-x"), "100%");
+});
+
+test("reposition returns false without a browsing context", async () => {
+  const { reposition, repositionAt } = await api();
+  setViewport();
+  document.body.innerHTML = '<div id="float"></div>';
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 100, height: 50 });
+
+  const viewless = document.implementation.createHTMLDocument("");
+  assert.equal(viewless.defaultView, null);
+  const reference = {
+    ownerDocument: viewless,
+    getClientRects: () => [
+      { x: 10, y: 10, left: 10, top: 10, right: 30, bottom: 30, width: 20, height: 20 },
+    ],
+  };
+
+  assert.equal(reposition(reference, float, { placement: "bottom" }), false);
+  assert.equal(float.style.left, "");
+
+  const viewlessFloat = viewless.createElement("div");
+  viewless.body.append(viewlessFloat);
+  assert.equal(repositionAt(10, 10, viewlessFloat), false);
+});
+
+test("autoUpdate rejects a document without a browsing context", async () => {
+  const { autoUpdate } = await api();
+  const viewless = document.implementation.createHTMLDocument("");
+  const float = viewless.createElement("div");
+  viewless.body.append(float);
+
+  assert.throws(() => autoUpdate(null, float, () => {}), TypeError);
+});
+
+test("the arrow points at the reference on an RTL aligned placement", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref" dir="rtl"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 600, y: 100, width: 100, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 300, height: 60 });
+
+  // RTL `start` aligns the far edges: the box spans 400..700 under a 600..700
+  // reference, so the arrow belongs near the end of the box, not in its middle.
+  reposition(ref, float, { placement: "bottom-start" });
+  assert.equal(float.style.left, "400px");
+  assert.equal(float.style.getPropertyValue("--arrow-x"), "83.333%");
 });

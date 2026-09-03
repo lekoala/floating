@@ -85,16 +85,18 @@ change that resizes either side triggers a new frame-batched update.
 
 ### `reposition(reference, floating, options?)`
 
-Positions `floating` relative to `reference`. Returns `false` when positioning cannot
-be performed, otherwise `true`.
+Positions `floating` relative to `reference`. Returns `true` when it positioned the
+element, and `false` when it could not: a hidden floating element, a reference with no
+client rect, a reference outside the boundary, or a document without a browsing context.
 
 Options:
 
 - `placement`: `top`, `right`, `bottom`, `left`, optionally suffixed by `-start` / `-end`.
 - `distance`: gap from the reference in CSS pixels. Default `0`.
 - `flip`: flip to the opposite side on main-axis overflow. Default `true`.
-- `shift`: shift back inside the boundary. Default `true`.
-- `shiftPadding`: boundary padding while shifting. Default `4`.
+- `shift`: keep the element inside the boundary on the cross axis. Default `true`.
+  With `shift: false` the coordinates are exactly those of the placement, overflow included.
+- `shiftPadding`: minimum distance from the boundary while shifting. Default `4`.
 - `scope`: optional element used as the positioning boundary instead of the visual viewport.
 
 The function writes:
@@ -106,7 +108,43 @@ The function writes:
 - `--arrow-y`
 - `--available-height`
 
+`--arrow-x` and `--arrow-y` locate the center of the reference inside the floating box,
+as a percentage of its size. A centered placement with no shifting reports `50%`; an
+aligned placement, a realignment, or a clamp all move the value so an arrow keeps
+pointing at the reference. They are clamped to `0%`-`100%` and rounded to three decimals.
+
+Use the one matching the placement axis, and keep the tip off the rounded corners on the
+consumer side:
+
+```css
+.popup[data-placement^="bottom"]::after {
+  left: clamp(.7rem, var(--arrow-x, 50%), calc(100% - .7rem));
+  translate: -50% -50%;
+}
+```
+
 The package does **not** set `position: fixed`; that remains consumer policy.
+
+#### Main axis and cross axis
+
+`flip` acts on the main axis of the placement, `shift` on the cross axis. For
+`top` / `bottom` placements the vertical space is reported through
+`--available-height` instead: sizing and overflow stay consumer policy, so a surface
+that does not fit scrolls or shrinks on its own terms rather than being moved.
+
+```css
+.listbox {
+  overflow-y: auto;
+  max-block-size: min(20rem, var(--available-height, 20rem));
+}
+```
+
+#### Boundary containment
+
+`shiftPadding` is a preference, not a guarantee. When the floating element cannot fit
+inside the padded boundary the padding is dropped in favour of containment, and when it
+is larger than the boundary itself it is aligned to the boundary start. Keeping a
+surface narrow enough to fit is consumer policy.
 
 ### `repositionAt(x, y, floating, options?)`
 
@@ -137,7 +175,27 @@ Tracking covers:
 - `ResizeObserver` changes to the floating element.
 
 Listeners and the `ResizeObserver` are shared per document. Document/window listeners
-are detached when the last subscription is removed.
+are detached when the last subscription is removed. Elements stay observed for the
+lifetime of the subscription; the delivery `ResizeObserver` emits for every newly
+observed element is not reported as `element-resize`.
+
+## Hiding and re-showing
+
+`reposition()` refuses to measure a floating element that is not rendered and returns
+`false`. Unhide first, then position:
+
+```js
+popup.hidden = false;
+reposition(anchor, popup, options);
+```
+
+To keep a surface in the DOM while it is out of its boundary, hide it with
+`visibility` rather than `hidden`, otherwise the next `reposition()` call cannot
+measure it and it can never come back:
+
+```js
+popup.style.visibility = reposition(anchor, popup, { scope }) ? "visible" : "hidden";
+```
 
 ## RTL
 
@@ -182,3 +240,15 @@ bun run check
 ```
 
 JSDoc is the source of truth for the generated TypeScript declarations.
+
+The demo pages import `src/floating.js` as a real module, so they need a static server:
+
+```sh
+npx serve .        # then open /demo/index.html
+```
+
+- `demo/index.html` covers every behavior: the twelve placements, `distance`,
+  `flip`, `shift`, `shiftPadding`, arrows driven by `--arrow-x` / `--arrow-y`,
+  `--available-height`, a scoped boundary, RTL, anchor width matching, point
+  positioning, and the `autoUpdate` event stream.
+- `demo/basic.html` is the minimal integration.
