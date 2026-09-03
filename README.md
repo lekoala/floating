@@ -133,10 +133,19 @@ direct child of `<body>`, or in the top layer.
 
 #### Main axis and cross axis
 
-`flip` acts on the main axis of the placement, `shift` on the cross axis. For
-`top` / `bottom` placements the vertical space is reported through
-`--available-height` instead: sizing and overflow stay consumer policy, so a surface
-that does not fit scrolls or shrinks on its own terms rather than being moved.
+`flip` acts on the main axis of the placement, `shift` on the cross axis. Nothing
+clamps a `top` / `bottom` placement vertically: sizing and overflow stay consumer
+policy, so a surface that does not fit scrolls or shrinks on its own terms rather
+than being moved or cut.
+
+`--available-height` reports the room left on the side the element actually landed
+on, measured after any flip. Most surfaces never need it, because flipping already
+resolves a shortage on one side. It matters when the element fits on **neither**
+side, which in practice means two cases:
+
+- a list taller than the viewport, such as an unfiltered combobox or a country picker;
+- a viewport shrunk by an on-screen keyboard, which is the normal state of a combobox
+  on mobile since positioning follows the visual viewport.
 
 ```css
 .listbox {
@@ -144,6 +153,10 @@ that does not fit scrolls or shrinks on its own terms rather than being moved.
   max-block-size: min(20rem, var(--available-height, 20rem));
 }
 ```
+
+The fallback in `var()` matters: the property does not exist until `reposition()` has
+run once. For `left` / `right` placements the value is the boundary height minus
+padding, without regard for where the reference sits.
 
 #### Boundary containment
 

@@ -54,14 +54,6 @@ function parsePlacement(placement) {
   return { side, align, crossAxis: crossAxisFor(side) };
 }
 
-/**
- * @param {string} side
- * @param {string | null} align
- */
-function formatPlacement(side, align) {
-  return align ? `${side}-${align}` : side;
-}
-
 /** @param {string} side */
 function flipSide(side) {
   return { top: "bottom", bottom: "top", left: "right", right: "left" }[side] || side;
@@ -488,12 +480,13 @@ export function reposition(reference, floating, options = {}) {
   );
 
   const availableHeight = getAvailableHeight(referenceRect, side, boundary, distance, shiftPadding);
-  floating.style.setProperty("--arrow-x", `${arrowX}%`);
-  floating.style.setProperty("--arrow-y", `${arrowY}%`);
-  floating.style.setProperty("--available-height", `${availableHeight}px`);
-  floating.dataset.placement = formatPlacement(side, align);
-  floating.style.left = `${coords.x}px`;
-  floating.style.top = `${coords.y}px`;
+  const { style } = floating;
+  style.left = `${coords.x}px`;
+  style.top = `${coords.y}px`;
+  style.setProperty("--arrow-x", `${arrowX}%`);
+  style.setProperty("--arrow-y", `${arrowY}%`);
+  style.setProperty("--available-height", `${availableHeight}px`);
+  floating.dataset.placement = align ? `${side}-${align}` : side;
 
   return true;
 }

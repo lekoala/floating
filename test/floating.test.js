@@ -192,6 +192,20 @@ test("reposition flips when preferred side overflows", async () => {
   assert.ok(Number.parseFloat(float.style.top) < 730);
 });
 
+test("reposition flips horizontally from right to left on overflow", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 950, y: 200, width: 50, height: 30 });
+  mockRect(float, { x: 0, y: 0, width: 100, height: 40 });
+
+  reposition(ref, float, { placement: "right", distance: 5 });
+  assert.equal(float.dataset.placement, "left");
+  assert.equal(float.style.left, "845px");
+});
+
 test("reposition shifts side placements on the y axis", async () => {
   const { reposition } = await api();
   setViewport();
@@ -251,6 +265,58 @@ test("reposition returns false for a hidden floating element", async () => {
 
   assert.equal(reposition(ref, float), false);
   assert.equal(float.style.left, "");
+});
+
+test("reposition returns false when reference has no client rects", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 100, height: 50 });
+  ref.getClientRects = () => [];
+
+  assert.equal(reposition(ref, float), false);
+  assert.equal(float.style.left, "");
+});
+
+test("reposition uses the outer line rect for a multiline reference", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<a id="ref"></a><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 80, height: 30 });
+
+  const firstLine = {
+    x: 100,
+    y: 100,
+    width: 200,
+    height: 20,
+    left: 100,
+    top: 100,
+    right: 300,
+    bottom: 120,
+  };
+  const lastLine = {
+    x: 50,
+    y: 120,
+    width: 150,
+    height: 20,
+    left: 50,
+    top: 120,
+    right: 200,
+    bottom: 140,
+  };
+  ref.getClientRects = () => [firstLine, lastLine];
+
+  reposition(ref, float, { placement: "top-start" });
+  assert.equal(float.style.left, "100px");
+  assert.equal(float.style.top, "70px");
+
+  reposition(ref, float, { placement: "bottom-start" });
+  assert.equal(float.style.left, "50px");
+  assert.equal(float.style.top, "140px");
 });
 
 test("reposition returns false when reference is outside boundary", async () => {
@@ -373,6 +439,45 @@ test("autoUpdate cleanup is idempotent and stops callbacks", async () => {
   await nextFrame();
 
   assert.deepEqual(calls, []);
+});
+
+test("autoUpdate drops a queued callback when floating is disconnected", async () => {
+  const { autoUpdate } = await api();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  const calls = [];
+  const stop = autoUpdate(ref, float, (detail) => calls.push(detail.type));
+
+  window.dispatchEvent(new window.Event("resize"));
+  float.remove();
+  await nextFrame();
+
+  assert.deepEqual(calls, []);
+  stop();
+});
+
+test("autoUpdate works without ResizeObserver", async () => {
+  const { autoUpdate } = await api();
+  const otherWindow = new Window({ url: "https://without-resize-observer.test/" });
+  const otherDocument = otherWindow.document;
+  Object.defineProperty(otherWindow, "ResizeObserver", {
+    configurable: true,
+    value: undefined,
+  });
+  otherWindow.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+  const ref = otherDocument.createElement("button");
+  const float = otherDocument.createElement("div");
+  otherDocument.body.append(ref, float);
+  const calls = [];
+  const stop = autoUpdate(ref, float, (detail) => calls.push(detail.type));
+
+  otherWindow.dispatchEvent(new otherWindow.Event("resize"));
+  await nextFrame();
+
+  assert.deepEqual(calls, ["resize"]);
+  assert.doesNotThrow(stop);
+  otherWindow.close();
 });
 
 test("autoUpdate validates ownerDocument", async () => {

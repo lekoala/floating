@@ -34,15 +34,16 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "test": "bun test",
+    "test:node": "node --test",
     "types": "tsc -p tsconfig.types.json",
     "typecheck": "tsc -p tsconfig.check.json",
     "lint": "biome check src test",
     "lint:fix": "biome check --write src test",
-    "check": "bun run typecheck && bun run test && bun run lint && bun run types",
+    "check": "bun run typecheck && bun run test && bun run test:node && bun run lint && bun run types",
     "prepack": "bun run check"
   },
   "devDependencies": {
