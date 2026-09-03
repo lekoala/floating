@@ -165,10 +165,8 @@ viewport resize, and floating-element resize tracking.
 
 The callback receives:
 
-```js
-{
-  type: "scroll" | "resize" | "element-resize";
-}
+```ts
+{ type: "scroll" | "resize" | "element-resize" }
 ```
 
 Tracking covers:

@@ -29,6 +29,7 @@ function installDOM() {
 
   window.ResizeObserver = class ResizeObserver {
     constructor(callback) {
+      this.callback = callback;
       this.elements = new Set();
       this.disconnected = false;
       resizeCallback = callback;
@@ -638,6 +639,16 @@ test("each subscription owns its size observer", async () => {
   assert.equal(resizeObservers.length, 2);
   assert.equal(resizeObserveCalls - observeCalls, 4);
 
+  // A resize seen by the first observer notifies only the first subscription.
+  const [first] = resizeObservers;
+  first.callback([{ target: float }], first);
+  first.callback([{ target: float }], first);
+  await nextFrame();
+  await nextFrame();
+  assert.deepEqual(calls, ["a"]);
+
+  // Document-level events stay shared and reach every subscription.
+  calls.length = 0;
   window.dispatchEvent(new window.Event("resize"));
   await nextFrame();
   assert.deepEqual(calls, ["a", "b"]);
@@ -834,4 +845,37 @@ test("autoUpdate coalesces the window and visual viewport resize into one call",
   assert.equal(calls[0].type, "resize");
   stop();
   otherWindow.close();
+});
+
+test('dir="auto" is resolved against the tree, not treated as ltr', async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<div id="float"></div>';
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 100, height: 50 });
+
+  const rect = {
+    x: 200,
+    y: 160,
+    left: 200,
+    top: 160,
+    right: 200,
+    bottom: 160,
+    width: 0,
+    height: 0,
+  };
+  const reference = {
+    ownerDocument: document,
+    dir: "auto",
+    matches: (selector) => selector === ":dir(rtl)",
+    getClientRects: () => [rect],
+  };
+
+  // `auto` settles nothing on its own: the `:dir(rtl)` match has to decide.
+  reposition(reference, float, { placement: "bottom-start" });
+  assert.equal(float.style.left, "100px");
+
+  reference.matches = () => false;
+  reposition(reference, float, { placement: "bottom-start" });
+  assert.equal(float.style.left, "200px");
 });

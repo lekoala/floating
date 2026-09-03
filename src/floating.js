@@ -41,10 +41,10 @@
  * @property {"scroll" | "resize" | "element-resize"} type What changed since the last frame.
  */
 
-/* The main axis is the one the side extends along: `top`/`bottom` place the
- * element above or below, so alignment slides it on x. */
+/* Alignment and shifting slide along the cross axis: `top`/`bottom` place the
+ * element above or below, so both happen on x. Flipping uses the other one. */
 /** @param {string} side */
-function mainAxisFor(side) {
+function crossAxisFor(side) {
   return side === "top" || side === "bottom" ? "x" : "y";
 }
 
@@ -52,7 +52,11 @@ function mainAxisFor(side) {
 function parsePlacement(placement) {
   const dash = placement.indexOf("-");
   const side = dash === -1 ? placement : placement.slice(0, dash);
-  return { side, align: dash === -1 ? null : placement.slice(dash + 1), axis: mainAxisFor(side) };
+  return {
+    side,
+    align: dash === -1 ? null : placement.slice(dash + 1),
+    crossAxis: crossAxisFor(side),
+  };
 }
 
 /**
@@ -72,12 +76,12 @@ function flipSide(side) {
 }
 
 function computeCoords(reference, floating, side, align, rtl) {
-  const axis = mainAxisFor(side);
+  const crossAxis = crossAxisFor(side);
   const commonX = reference.x + reference.width / 2 - floating.width / 2;
   const commonY = reference.y + reference.height / 2 - floating.height / 2;
   const commonAlign =
-    reference[axis === "x" ? "width" : "height"] / 2 -
-    floating[axis === "x" ? "width" : "height"] / 2;
+    reference[crossAxis === "x" ? "width" : "height"] / 2 -
+    floating[crossAxis === "x" ? "width" : "height"] / 2;
 
   let coords;
   switch (side) {
@@ -98,10 +102,10 @@ function computeCoords(reference, floating, side, align, rtl) {
   }
 
   /* Physical sides stay physical in RTL; only logical alignment follows the
-   * reference direction, and only on the axis alignment slides along. */
+   * reference direction, and only on the cross axis it slides along. */
   if (align === "start" || align === "end") {
-    const direction = (rtl && axis === "x" ? -1 : 1) * (align === "end" ? 1 : -1);
-    coords[axis] += commonAlign * direction;
+    const direction = (rtl && crossAxis === "x" ? -1 : 1) * (align === "end" ? 1 : -1);
+    coords[crossAxis] += commonAlign * direction;
   }
 
   return coords;
@@ -128,48 +132,24 @@ function getInlineOverflow(coords, floating, minX, maxX) {
   return Math.max(minX - coords.x, 0) + Math.max(coords.x + floating.width - maxX, 0);
 }
 
-function toBoundary(rect) {
-  return {
-    x: rect.x,
-    y: rect.y,
-    width: rect.width,
-    height: rect.height,
-    right: rect.x + rect.width,
-    bottom: rect.y + rect.height,
-  };
-}
-
-/* `CSS.supports()` is stable per window; caching keeps `reposition()` free of
- * repeated selector parsing without an import-time global lookup. */
-/** @type {WeakMap<object, boolean>} */
-const dirSelectorSupport = new WeakMap();
-
-/** @param {PositionReference} element */
-function supportsDirSelector(element) {
-  const win = element.ownerDocument?.defaultView;
-  if (!win) return false;
-  let supported = dirSelectorSupport.get(win);
-  if (supported === undefined) {
-    const css = win.CSS;
-    supported = typeof css?.supports === "function" && css.supports("selector(:dir(rtl))");
-    dirSelectorSupport.set(win, supported);
-  }
-  return supported;
-}
-
+/* Only `rtl` and `ltr` settle the direction on their own: `auto` and an unset
+ * `dir` both have to be resolved against the rendered tree. */
 /** @param {PositionReference} element */
 function isRTL(element) {
   const direction = "dir" in element ? element.dir : "";
   if (direction === "rtl") return true;
   if (direction === "ltr") return false;
-  if (supportsDirSelector(element) && typeof element.matches === "function") {
+
+  const win = element.ownerDocument?.defaultView;
+  if (win?.CSS?.supports?.("selector(:dir(rtl))") && typeof element.matches === "function") {
     return element.matches(":dir(rtl)");
   }
-  const win = element.ownerDocument?.defaultView;
-  if (win?.Element && element instanceof win.Element) {
-    return win.getComputedStyle(element).direction === "rtl";
-  }
-  return false;
+
+  return Boolean(
+    win?.Element &&
+      element instanceof win.Element &&
+      win.getComputedStyle(element).direction === "rtl",
+  );
 }
 
 /* Most scrollbars leave 15-18px; anything wider is not a gutter. */
@@ -204,13 +184,14 @@ function getViewportBoundary(doc) {
     if (gutter && gutter !== "auto") width -= reserved;
   }
 
-  return toBoundary({ x, y, width, height });
+  return { x, y, width, height, right: x + width, bottom: y + height };
 }
 
+/* A `DOMRect` already carries every field a boundary needs. */
 function getBoundary(reference, options) {
-  if (!options.scope) return getViewportBoundary(reference.ownerDocument);
-  const rect = options.scope.getBoundingClientRect();
-  return toBoundary({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+  return options.scope
+    ? options.scope.getBoundingClientRect()
+    : getViewportBoundary(reference.ownerDocument);
 }
 
 /* Boundary containment wins over `shiftPadding`: when the floating element does
@@ -447,7 +428,7 @@ export function reposition(reference, floating, options = {}) {
   const shift = options.shift !== false;
   const shiftPadding = options.shiftPadding ?? 4;
 
-  let { side, align, axis } = parsePlacement(placement);
+  let { side, align, crossAxis } = parsePlacement(placement);
   /* Direction only changes logical alignment, and resolving it costs a style
    * recalc on engines without `:dir()`. Centered placements never need it. */
   const rtl = align ? isRTL(reference) : false;
@@ -473,8 +454,8 @@ export function reposition(reference, floating, options = {}) {
     const y = Math.ceil(coords.y);
 
     if (
-      (axis === "x" && (y < minBoundaryY || y + floatingRect.height >= maxBoundaryY)) ||
-      (axis === "y" && (x < minBoundaryX || x + floatingRect.width >= maxBoundaryX))
+      (crossAxis === "x" && (y < minBoundaryY || y + floatingRect.height >= maxBoundaryY)) ||
+      (crossAxis === "y" && (x < minBoundaryX || x + floatingRect.width >= maxBoundaryX))
     ) {
       side = flipSide(side);
       coords = computeCoords(referenceRect, floatingRect, side, align, rtl);
@@ -482,18 +463,18 @@ export function reposition(reference, floating, options = {}) {
     }
 
     if (
-      axis === "y" &&
+      crossAxis === "y" &&
       (coords.x < minBoundaryX || coords.x + floatingRect.width > maxBoundaryX) &&
       boundary.width - floatingRect.width < NARROW_INLINE_FLIP_FALLBACK
     ) {
       side = "top";
-      axis = "x";
+      crossAxis = "x";
       coords = computeCoords(referenceRect, floatingRect, side, align, rtl);
       applyOffset(coords, side, distance);
     }
   }
 
-  if (axis === "x" && shift && align) {
+  if (crossAxis === "x" && shift && align) {
     const minX = minBoundaryX + shiftPadding;
     const maxX = maxBoundaryX - shiftPadding;
     const currentOverflow = getInlineOverflow(coords, floatingRect, minX, maxX);
@@ -518,7 +499,7 @@ export function reposition(reference, floating, options = {}) {
       maxBoundaryX,
       shiftPadding,
     );
-    if (axis === "y") {
+    if (crossAxis === "y") {
       coords.y = clampToBoundary(
         coords.y,
         floatingRect.height,

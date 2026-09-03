@@ -633,7 +633,7 @@
     const resizable = $("resizable");
     const tracker = $("tracker");
     const entries = [];
-    let frames = 0;
+    let updates = 0;
 
     const updateTracker = () =>
       place(resizable, tracker, { placement: "right", distance: 8 });
@@ -641,8 +641,9 @@
     updateTracker();
     autoUpdate(resizable, tracker, (detail) => {
       updateTracker();
-      frames += 1;
-      entries.unshift(`${String(frames).padStart(3, "0")}  ${detail.type}`);
+      // One entry per delivered type: a single frame can carry several.
+      updates += 1;
+      entries.unshift(`${String(updates).padStart(3, "0")}  ${detail.type}`);
       entries.length = Math.min(entries.length, 6);
       log.textContent = entries.join("\n");
     });
