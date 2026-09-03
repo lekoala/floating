@@ -132,7 +132,7 @@ The callback receives:
 Tracking covers:
 
 - captured scroll events in the owner document;
-- viewport resize;
+- window and visual viewport scroll/resize;
 - `ResizeObserver` changes to the reference, when one is supplied;
 - `ResizeObserver` changes to the floating element.
 
@@ -177,8 +177,8 @@ Those concerns belong to the consumer.
 ## Development
 
 ```sh
-npm install
-npm run check
+bun install
+bun run check
 ```
 
 JSDoc is the source of truth for the generated TypeScript declarations.

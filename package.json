@@ -37,19 +37,19 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "bun test",
     "types": "tsc -p tsconfig.types.json",
     "typecheck": "tsc -p tsconfig.check.json",
     "lint": "biome check src test",
     "lint:fix": "biome check --write src test",
-    "check": "npm run typecheck && npm run test && npm run lint && npm run types",
-    "prepack": "npm run check"
+    "check": "bun run typecheck && bun run test && bun run lint && bun run types",
+    "prepack": "bun run check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",
-    "happy-dom": "^20.0.0",
-    "typescript": "^5.8.0"
+    "happy-dom": "^20.11.2",
+    "typescript": "^7.0.0"
   },
-  "packageManager": "npm@10.9.2",
+  "packageManager": "bun@1.4.0",
   "types": "./types/index.d.ts"
 }

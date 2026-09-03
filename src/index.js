@@ -232,9 +232,11 @@ function createTracker(doc) {
   const pending = new Map();
 
   const ResizeObserverCtor = win.ResizeObserver;
+  /** @type {ResizeObserver | null} */
   let resizeObserver = null;
   let tick = false;
   let listening = false;
+  const visualViewport = win.visualViewport;
 
   function queue(subscription, type, source) {
     let notifications = pending.get(subscription);
@@ -320,6 +322,8 @@ function createTracker(doc) {
     if (listening) return;
     doc.addEventListener("scroll", onScroll, { passive: true, capture: true });
     win.addEventListener("resize", onResize, { passive: true });
+    visualViewport?.addEventListener("scroll", onScroll, { passive: true });
+    visualViewport?.addEventListener("resize", onResize, { passive: true });
     listening = true;
   }
 
@@ -327,6 +331,8 @@ function createTracker(doc) {
     if (!listening) return;
     doc.removeEventListener("scroll", onScroll, { capture: true });
     win.removeEventListener("resize", onResize);
+    visualViewport?.removeEventListener("scroll", onScroll);
+    visualViewport?.removeEventListener("resize", onResize);
     listening = false;
   }
 
@@ -506,13 +512,7 @@ export function reposition(reference, floating, options = {}) {
     }
   }
 
-  const availableHeight = getAvailableHeight(
-    referenceRect,
-    side,
-    boundary,
-    distance,
-    shiftPadding,
-  );
+  const availableHeight = getAvailableHeight(referenceRect, side, boundary, distance, shiftPadding);
   floating.style.setProperty("--arrow-x", `${arrowX}%`);
   floating.style.setProperty("--arrow-y", `${arrowY}%`);
   floating.style.setProperty("--available-height", `${availableHeight}px`);

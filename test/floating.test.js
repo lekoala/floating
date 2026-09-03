@@ -192,7 +192,8 @@ test("reposition shifts side placements on the y axis", async () => {
 test("reposition honors a scoped boundary", async () => {
   const { reposition } = await api();
   setViewport();
-  document.body.innerHTML = '<div id="scope"><button id="ref"></button><div id="float"></div></div>';
+  document.body.innerHTML =
+    '<div id="scope"><button id="ref"></button><div id="float"></div></div>';
   const scope = document.getElementById("scope");
   const ref = document.getElementById("ref");
   const float = document.getElementById("float");
@@ -314,7 +315,10 @@ test("autoUpdate reports reference and floating element resize", async () => {
   await nextFrame();
   await nextFrame();
 
-  assert.deepEqual(calls.map((entry) => entry.type), ["element-resize", "element-resize"]);
+  assert.deepEqual(
+    calls.map((entry) => entry.type),
+    ["element-resize", "element-resize"],
+  );
   assert.equal(calls[0].targets.has(ref), true);
   assert.equal(calls[1].targets.has(float), true);
   stop();
@@ -374,4 +378,33 @@ test("autoUpdate supports point-positioned surfaces without a reference", async 
   await nextFrame();
   assert.deepEqual(calls, ["resize"]);
   stop();
+});
+
+test("autoUpdate tracks visual viewport scroll and resize", async () => {
+  const { autoUpdate } = await api();
+  const otherWindow = new Window({ url: "https://viewport.test/" });
+  const otherDocument = otherWindow.document;
+  const visualViewport = new otherWindow.EventTarget();
+  Object.defineProperty(otherWindow, "visualViewport", {
+    configurable: true,
+    value: visualViewport,
+  });
+  otherWindow.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+  const float = otherDocument.createElement("div");
+  otherDocument.body.append(float);
+  const calls = [];
+  const stop = autoUpdate(null, float, (detail) => calls.push(detail));
+
+  visualViewport.dispatchEvent(new otherWindow.Event("scroll"));
+  visualViewport.dispatchEvent(new otherWindow.Event("resize"));
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.deepEqual(
+    calls.map((entry) => entry.type),
+    ["scroll", "resize"],
+  );
+  assert.equal(calls[0].targets.has(visualViewport), true);
+  assert.equal(calls[1].targets.has(visualViewport), true);
+  stop();
+  otherWindow.close();
 });
