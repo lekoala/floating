@@ -12,21 +12,36 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 
 const VIEWPORT = { width: 900, height: 700 };
 
-function chromeAvailable() {
+async function openChrome() {
+  let candidate;
+  let timer;
   try {
-    new Bun.WebView({ backend: "chrome" }).close();
-    return true;
-  } catch {
-    return false;
+    candidate = new Bun.WebView({ backend: "chrome", ...VIEWPORT });
+    // Construction alone does not prove that Chrome can start and respond.
+    await Promise.race([
+      candidate.navigate("about:blank"),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Chrome startup timed out")), 20000);
+      }),
+    ]);
+    return candidate;
+  } catch (error) {
+    candidate?.close();
+    console.warn("Skipping browser tests: Chrome is unavailable.", error);
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-const browserTest = chromeAvailable() ? test : test.skip;
+const view = await openChrome();
+const browserTest = view ? test : test.skip;
 
 let server;
-let view;
 
 beforeAll(async () => {
+  if (!view) return;
+
   server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -37,9 +52,6 @@ beforeAll(async () => {
     },
   });
 
-  if (!chromeAvailable()) return;
-
-  view = new Bun.WebView({ backend: "chrome", ...VIEWPORT });
   await view.navigate(`http://localhost:${server.port}/`);
   /* Device metrics pin the layout viewport: headless Chrome clamps the window
    * size to a platform minimum, which would silently move every expectation. */
@@ -54,7 +66,7 @@ beforeAll(async () => {
     }
     if (!window.floating) throw new Error("fixture module never loaded");
   })()`);
-});
+}, 20000);
 
 afterAll(() => {
   view?.close();
