@@ -37,6 +37,12 @@ New public API needs a concrete use case in more than one consumer.
 - `autoUpdate()` observes both reference and floating element when ResizeObserver exists.
 - Scroll/resize work is shared and frame-batched per document; size observation is per
   subscription.
+- `autoUpdate()` calls back at most once per subscription per frame.
+- Side selection compares overflow: the preferred side is kept unless another one
+  overflows less. Nothing moves the element along the main axis of its placement.
+- `reposition()` settles a size its own `--available-height` drove, in at most one
+  corrective pass, pinned to the side already resolved. Adding a write that can resize
+  the element means revisiting it.
 - Closed surfaces should stop tracking; the package does not decide when that happens.
 
 ## Tests
@@ -44,7 +50,7 @@ New public API needs a concrete use case in more than one consumer.
 Any geometry change must cover the relevant edge cases:
 
 - preferred placement;
-- flip;
+- flip, including the cases where flipping would overflow more and must not happen;
 - shift/clamping, including boundaries the element cannot fit inside;
 - arrow percentages;
 - RTL;
@@ -52,8 +58,14 @@ Any geometry change must cover the relevant edge cases:
 - scoped boundary;
 - point positioning;
 - transformed floating elements measured by layout size;
+- a size driven by `--available-height`, settled by a single call;
 - reference resize and floating resize;
 - cleanup, listener sharing, and listener detachment;
 - the initial `ResizeObserver` delivery, which is not a resize.
+
+Geometry that depends on a real engine belongs in `test/browser.test.js`, which drives
+headless Chrome through `Bun.WebView` and skips itself when no browser is available:
+the top layer and popover UA styles, `--available-height` constraining a real box,
+layout size versus a painted transform, `:dir(rtl)`, and tracking a real scroll.
 
 Run `npm run check` before publishing.

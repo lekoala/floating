@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>floating browser fixture</title>
+  <style>
+    body { margin: 0; font: 16px/1.4 system-ui, sans-serif; }
+    .anchor { position: absolute; margin: 0; padding: 0; border: 1px solid #888; box-sizing: border-box; }
+    .panel { position: fixed; inset: auto; margin: 0; padding: 0; border: 0; box-sizing: border-box; background: #eee; }
+  </style>
+</head>
+<body>
+  <script type="module">
+    /* The suite drives every case from `window.floating`, so the fixture only
+       has to provide the module and the two classes the cases position. */
+    import * as floating from "/src/floating.js";
+
+    window.floating = floating;
+  </script>
+</body>
+</html>

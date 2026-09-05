@@ -1,6 +1,6 @@
 {
   "name": "@lekoala/floating",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Small zero-dependency positioning engine for floating browser UI",
   "type": "module",
   "license": "MIT",
@@ -38,19 +38,20 @@
   },
   "scripts": {
     "test": "bun test",
-    "test:node": "node --test",
+    "test:node": "node --test test/floating.test.js",
     "types": "tsc -p tsconfig.types.json",
     "typecheck": "tsc -p tsconfig.check.json",
     "lint": "biome check src test",
     "lint:fix": "biome check --write src test",
     "check": "bun run typecheck && bun run test && bun run test:node && bun run lint && bun run types",
-    "prepack": "bun run check"
+    "prepack": "bun run check",
+    "test:browser": "bun test test/browser.test.js"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",
     "happy-dom": "^20.11.2",
     "typescript": "^7.0.0"
   },
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.1",
   "types": "./types/floating.d.ts"
 }

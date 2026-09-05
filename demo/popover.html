@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>@lekoala/floating — popover</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; margin: 4rem; min-height: 120vh; }
+    button { padding: .6rem .8rem; }
+
+    /* The UA stylesheet centers an open popover with `inset: 0; margin: auto`,
+       which fights the explicit left/top this package writes. */
+    #popup {
+      position: fixed;
+      inset: auto;
+      margin: 0;
+      max-width: 18rem;
+      padding: .75rem;
+      border: 1px solid #aaa;
+      border-radius: .4rem;
+      background: Canvas;
+      color: CanvasText;
+      box-shadow: 0 .5rem 1.5rem rgb(0 0 0 / .15);
+    }
+  </style>
+</head>
+<body>
+  <button id="anchor" type="button" popovertarget="popup">Toggle popover</button>
+  <div id="popup" popover>Light dismiss and Escape come from the Popover API. Scroll or resize the page: the panel follows the button and flips when needed.</div>
+
+  <script type="module">
+    import { autoUpdate, reposition } from "../src/floating.js";
+
+    const anchor = document.querySelector("#anchor");
+    const popup = document.querySelector("#popup");
+    let stop = null;
+
+    function update() {
+      reposition(anchor, popup, {
+        placement: "bottom-start",
+        distance: 6,
+      });
+    }
+
+    /* `toggle` fires after the popover is shown, so it is measurable, and again
+       on every close, including Escape and light dismiss. */
+    popup.addEventListener("toggle", (event) => {
+      stop?.();
+      stop = null;
+      if (event.newState !== "open") return;
+
+      update();
+      stop = autoUpdate(anchor, popup, update);
+    });
+  </script>
+</body>
+</html>

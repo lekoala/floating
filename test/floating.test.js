@@ -192,6 +192,37 @@ test("reposition flips when preferred side overflows", async () => {
   assert.ok(Number.parseFloat(float.style.top) < 730);
 });
 
+test("reposition keeps the preferred side when the opposite one overflows more", async () => {
+  const { reposition } = await api();
+  setViewport(1024, 800);
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 100, width: 60, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 120, height: 700 });
+
+  // Below overflows by 24px, above by 604px: flipping would make it worse.
+  reposition(ref, float, { placement: "bottom-start" });
+  assert.equal(float.dataset.placement, "bottom-start");
+  assert.equal(float.style.top, "120px");
+});
+
+test("reposition does not flip an element that fits exactly", async () => {
+  const { reposition } = await api();
+  setViewport(1024, 768);
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 500, width: 60, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 120, height: 248 });
+
+  // The bottom edge lands exactly on the boundary, and there is room above: an
+  // inclusive overflow test would flip to top at y=252 instead of staying put.
+  reposition(ref, float, { placement: "bottom-start", shiftPadding: 0 });
+  assert.equal(float.dataset.placement, "bottom-start");
+  assert.equal(float.style.top, "520px");
+});
+
 test("reposition flips horizontally from right to left on overflow", async () => {
   const { reposition } = await api();
   setViewport();
@@ -319,6 +350,83 @@ test("reposition uses the outer line rect for a multiline reference", async () =
   assert.equal(float.style.top, "140px");
 });
 
+test("reposition settles a size its own --available-height drives", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 200, width: 60, height: 32 });
+  mockRect(float, { x: 0, y: 0, width: 220, height: 320 });
+  // Stands in for `max-block-size: min(20rem, var(--available-height, 20rem))`.
+  Object.defineProperty(float, "offsetHeight", {
+    configurable: true,
+    get() {
+      const available = Number.parseFloat(float.style.getPropertyValue("--available-height"));
+      return Number.isNaN(available) ? 320 : Math.min(320, available);
+    },
+  });
+
+  assert.equal(reposition(ref, float, { placement: "top", distance: 8, flip: false }), true);
+  // 200 - 8 - 4 of room, so the box shrinks to 188 and is placed for 188, not 320.
+  assert.equal(float.style.getPropertyValue("--available-height"), "188px");
+  assert.equal(float.style.top, "4px");
+});
+
+test("reposition does not re-measure while the reported room holds still", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 200, width: 60, height: 32 });
+  mockRect(float, { x: 0, y: 0, width: 220, height: 80 });
+
+  let reads = 0;
+  Object.defineProperty(float, "offsetHeight", {
+    configurable: true,
+    get() {
+      reads += 1;
+      return 80;
+    },
+  });
+
+  const options = { placement: "top", distance: 8 };
+  reposition(ref, float, options);
+  const first = reads;
+  reposition(ref, float, options);
+
+  // The first call publishes a new room and verifies the size once; the second
+  // reports the same room, so it measures once and stops there.
+  assert.equal(first, 2);
+  assert.equal(reads - first, 1);
+});
+
+test("the corrective pass keeps the side the first pass resolved", async () => {
+  const { reposition } = await api();
+  setViewport(1024, 500);
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 300, width: 60, height: 32 });
+  mockRect(float, { x: 0, y: 0, width: 220, height: 320 });
+  // A surface whose own CSS sizes it from the placement, the way a
+  // `[data-placement^="top"]` rule or a container query would.
+  Object.defineProperty(float, "offsetHeight", {
+    configurable: true,
+    get() {
+      return float.dataset.placement?.startsWith("top") ? 100 : 320;
+    },
+  });
+
+  // 156px of room below against 288px above: the first pass flips to top, which
+  // shrinks the box. Re-deciding on that size would send it back down, where the
+  // box grows again and overflows by 164px.
+  reposition(ref, float, { placement: "bottom", distance: 8 });
+  assert.equal(float.dataset.placement, "top");
+  assert.equal(float.style.top, "192px");
+});
+
 test("reposition returns false when reference is outside boundary", async () => {
   const { reposition } = await api();
   setViewport();
@@ -409,7 +517,7 @@ test("autoUpdate reports reference and floating element resize", async () => {
   stop();
 });
 
-test("autoUpdate batches scroll and resize by frame but preserves event types", async () => {
+test("autoUpdate calls back once per frame and reports the most specific cause", async () => {
   const { autoUpdate } = await api();
   document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
   const ref = document.getElementById("ref");
@@ -421,7 +529,16 @@ test("autoUpdate batches scroll and resize by frame but preserves event types", 
   document.dispatchEvent(new window.Event("scroll"));
   await nextFrame();
 
-  assert.deepEqual(calls, ["resize", "scroll"]);
+  // One reposition per frame; a resize outranks a scroll.
+  assert.deepEqual(calls, ["resize"]);
+
+  // Priming delivery first, then a real element resize alongside a scroll.
+  resizeCallback([{ target: ref }, { target: float }]);
+  document.dispatchEvent(new window.Event("scroll"));
+  resizeCallback([{ target: float }]);
+  await nextFrame();
+
+  assert.deepEqual(calls, ["resize", "element-resize"]);
   stop();
 });
 
@@ -520,6 +637,7 @@ test("autoUpdate tracks visual viewport scroll and resize", async () => {
   const stop = autoUpdate(null, float, (detail) => calls.push(detail.type));
 
   visualViewport.dispatchEvent(new otherWindow.Event("scroll"));
+  await new Promise((resolve) => setTimeout(resolve, 5));
   visualViewport.dispatchEvent(new otherWindow.Event("resize"));
   await new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -579,6 +697,54 @@ test("reposition falls back to top when a side placement cannot fit inline", asy
   assert.equal(float.style.left, "4px");
   assert.equal(float.style.top, "200px");
   assert.equal(float.style.getPropertyValue("--arrow-x"), "44.615%");
+});
+
+test("reposition falls back to bottom when the inline fallback does not fit above", async () => {
+  const { reposition } = await api();
+  setViewport(300, 768);
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 20, y: 10, width: 40, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 250, height: 100 });
+
+  // Neither side fits inline, and there is no room above the reference.
+  reposition(ref, float, { placement: "right" });
+  assert.equal(float.dataset.placement, "bottom");
+  assert.equal(float.style.top, "30px");
+});
+
+test("the inline fallback counts the overflow shifting cannot absorb", async () => {
+  const { reposition } = await api();
+  setViewport(300, 768);
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 20, y: 10, width: 40, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 250, height: 100 });
+
+  // Same geometry as the fallback case above, but nothing will clamp the
+  // horizontal overflow a bottom placement would bring, so right stays cheaper.
+  reposition(ref, float, { placement: "right", shift: false });
+  assert.equal(float.dataset.placement, "right");
+  assert.equal(float.style.left, "60px");
+  assert.equal(float.style.top, "-30px");
+});
+
+test("shift never moves a side placement over its own reference", async () => {
+  const { reposition } = await api();
+  setViewport(300, 768);
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 300, width: 40, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 260, height: 100 });
+
+  // Without flipping there is no better side to pick, so the overflow is kept
+  // rather than traded for an element sitting on top of the reference.
+  reposition(ref, float, { placement: "right", flip: false });
+  assert.equal(float.dataset.placement, "right");
+  assert.equal(float.style.left, "140px");
 });
 
 test("reposition realigns start to end instead of clamping", async () => {

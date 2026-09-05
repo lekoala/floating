@@ -419,8 +419,8 @@
   <!-- ── 7. autoUpdate ─────────────────────────────────────────────────── -->
   <h2>7. <code>autoUpdate</code> stream</h2>
   <p>
-    Scroll, resize the window, or resize the panel below. Callbacks are batched per
-    animation frame and keep their event type.
+    Scroll, resize the window, or resize the panel below. One callback per animation
+    frame, reporting the most specific cause of that frame.
   </p>
   <div class="row">
     <div id="resizable" style="resize: both; overflow: auto; inline-size: 12rem; block-size: 5rem; border: 1px solid var(--edge); border-radius: .4rem; padding: .5rem">
@@ -562,6 +562,7 @@
       menu.hidden = true;
       stopMenu?.();
       stopMenu = null;
+      document.removeEventListener("scroll", closeMenu, { capture: true });
     }
 
     $("context-zone").addEventListener("contextmenu", (event) => {
@@ -570,13 +571,11 @@
       menu.hidden = false;
       updateMenu();
       stopMenu?.();
-      // No DOM reference: pass null and keep scroll/resize tracking. A point is
-      // fixed to the viewport, not to content, so scrolling invalidates the menu
-      // instead of moving it -- closing is consumer policy, not engine policy.
-      stopMenu = autoUpdate(null, menu, (detail) => {
-        if (detail.type === "scroll") closeMenu();
-        else updateMenu();
-      });
+      // No DOM reference: pass null and keep resize tracking. A point is fixed to
+      // the viewport, not to content, so scrolling invalidates the menu instead of
+      // moving it -- closing is consumer policy, so it owns its own listener.
+      stopMenu = autoUpdate(null, menu, updateMenu);
+      document.addEventListener("scroll", closeMenu, { capture: true, passive: true });
     });
 
     document.addEventListener("pointerdown", (event) => {

@@ -13,9 +13,9 @@
  * @typedef {Object} RepositionOptions
  * @property {Placement | undefined} [placement="bottom-start"] Preferred physical side and logical alignment.
  * @property {number | undefined} [distance=0] Distance in CSS pixels between reference and floating element.
- * @property {boolean | undefined} [flip=true] Flip to the opposite side when the preferred side overflows.
- * @property {boolean | undefined} [shift=true] Keep the element inside the active boundary on the cross axis.
- * @property {number | undefined} [shiftPadding=4] Minimum distance in CSS pixels from the boundary while shifting, dropped when the element cannot fit inside it.
+ * @property {boolean | undefined} [flip=true] Take the opposite side when it overflows the boundary less than the preferred one.
+ * @property {boolean | undefined} [shift=true] Clamp on the cross axis only.
+ * @property {number | undefined} [shiftPadding=4] Boundary padding in CSS pixels for side selection and shifting. Clamping may drop it to fit.
  * @property {HTMLElement | undefined} [scope] Optional clipping/positioning boundary instead of the visual viewport.
  */
 
@@ -38,11 +38,10 @@
 
 /**
  * @typedef {Object} AutoUpdateDetail
- * @property {"scroll" | "resize" | "element-resize"} type What changed since the last frame.
+ * @property {"scroll" | "resize" | "element-resize"} type Most specific change since the last frame, at most one per frame.
  */
 
-/* Alignment and shifting slide along the cross axis: `top`/`bottom` place the
- * element above or below, so both happen on x. Flipping uses the other one. */
+/* Alignment and shift use x for top/bottom, y for left/right. */
 /** @param {string} side */
 function crossAxisFor(side) {
   return side === "top" || side === "bottom" ? "x" : "y";
@@ -85,8 +84,7 @@ function computeCoords(reference, floating, side, align, rtl, distance) {
       coords = { x: reference.x, y: reference.y };
   }
 
-  /* Physical sides stay physical in RTL; only logical alignment follows the
-   * reference direction, and only on the cross axis it slides along. */
+  /* RTL changes horizontal start/end alignment only. */
   if (align === "start" || align === "end") {
     const direction = (rtl && crossAxis === "x" ? -1 : 1) * (align === "end" ? 1 : -1);
     coords[crossAxis] += commonAlign * direction;
@@ -95,12 +93,12 @@ function computeCoords(reference, floating, side, align, rtl, distance) {
   return coords;
 }
 
-function getInlineOverflow(coords, floating, minX, maxX) {
-  return Math.max(minX - coords.x, 0) + Math.max(coords.x + floating.width - maxX, 0);
+/* Total overflow past both edges. */
+function overflowOn(position, size, start, end) {
+  return Math.max(start - position, 0) + Math.max(position + size - end, 0);
 }
 
-/* Only `rtl` and `ltr` settle the direction on their own: `auto` and an unset
- * `dir` both have to be resolved against the rendered tree. */
+/* Resolve inherited direction and dir="auto" from the rendered tree. */
 /** @param {PositionReference} element */
 function isRTL(element) {
   const direction = "dir" in element ? element.dir : "";
@@ -119,9 +117,8 @@ function isRTL(element) {
   );
 }
 
-/* Most scrollbars leave 15-18px; anything wider is not a gutter. */
+/* Upper bound for the reserved-gutter heuristic. */
 const STABLE_SCROLLBAR_MAX_WIDTH = 25;
-const NARROW_INLINE_FLIP_FALLBACK = 128;
 
 function getViewportBoundary(doc) {
   const win = doc.defaultView;
@@ -134,13 +131,8 @@ function getViewportBoundary(doc) {
   let width = visualViewport?.width || docEl.clientWidth || win.innerWidth;
   const height = visualViewport?.height || docEl.clientHeight || win.innerHeight;
 
-  /* `scrollbar-gutter: stable` reserves space the viewport width still counts.
-   * The root `clientWidth` reports the viewport minus a rendered scrollbar,
-   * while the <html> border box also loses the reserved gutter, so their
-   * difference isolates it. Only a declared gutter narrows the boundary: any
-   * other narrowing of the <html> box (a margin, a width, a transform) must not
-   * be mistaken for one, which a body-width comparison cannot tell apart. The
-   * style lookup is read last so it stays off the common path. */
+  /* Detect reserved root gutter space; require a declared gutter to exclude
+   * unrelated changes to the root box. */
   const reserved =
     doc.compatMode === "BackCompat"
       ? width - docEl.clientWidth
@@ -154,17 +146,13 @@ function getViewportBoundary(doc) {
   return { x, y, width, height, right: x + width, bottom: y + height };
 }
 
-/* A `DOMRect` already carries every field a boundary needs. */
 function getBoundary(reference, options) {
   return options.scope
     ? options.scope.getBoundingClientRect()
     : getViewportBoundary(reference.ownerDocument);
 }
 
-/* Boundary containment wins over `shiftPadding`: when the floating element does
- * not fit inside the padded boundary the padding is dropped, and when it is
- * larger than the boundary itself it is aligned to the boundary start. Consumers
- * that cannot accept overflow own the sizing policy. */
+/* Drop padding when needed to fit; align oversized boxes to the start. */
 function clampToBoundary(position, size, start, end, padding) {
   const paddedMin = start + padding;
   const paddedMax = end - size - padding;
@@ -174,11 +162,7 @@ function clampToBoundary(position, size, start, end, padding) {
   return Math.max(min, Math.min(position, max));
 }
 
-/* Where the reference center falls inside the floating box, as a percentage of
- * its size. This covers alignment, realignment and clamping in one value: a
- * centered placement lands on 50%, an aligned one points at the reference
- * instead of at the middle of the box. Values stay inside the box so the arrow
- * remains drawable, and are rounded to keep the custom property short. */
+/* Reference center as a clamped percentage of the floating box. */
 function arrowPercent(referenceCenter, boxStart, size) {
   if (!size) return 50;
   const percent = ((referenceCenter - boxStart) / size) * 100;
@@ -204,17 +188,14 @@ function getAvailableHeight(referenceRect, side, boundary, distance, padding) {
   return Math.max(0, boundary.height - padding * 2);
 }
 
-/* `checkVisibility()` is called with its defaults on purpose: an element hidden
- * with `visibility` or `opacity` still has a box and stays measurable, which is
- * what lets a consumer hide an out-of-boundary surface and bring it back. */
+/* Visibility and opacity do not prevent measurement. */
 function isVisible(element) {
   if (element.hidden) return false;
   if (typeof element.checkVisibility === "function") return element.checkVisibility();
   return element.getClientRects().length > 0;
 }
 
-/* Layout size is preferred so a transformed floating element is measured by the
- * box it occupies, not by its painted rect. */
+/* Use layout dimensions to ignore transforms on the floating element. */
 function getFloatingSize(floating) {
   const width = floating.offsetWidth;
   const height = floating.offsetHeight;
@@ -223,11 +204,9 @@ function getFloatingSize(floating) {
   return { width: width || rect.width, height: height || rect.height };
 }
 
-/* Per-document update trackers. A document gets one captured scroll listener and
- * one resize listener regardless of subscription count. Size observation is per
- * subscription instead: sharing it would need reference counting and per-element
- * priming for a page that rarely holds more than a couple of open surfaces. */
+/* Share viewport listeners per document; observe sizes per subscription. */
 const trackers = new WeakMap();
+const TYPE_PRIORITY = { scroll: 0, resize: 1, "element-resize": 2 };
 
 function createTracker(doc) {
   const win = doc.defaultView;
@@ -235,7 +214,7 @@ function createTracker(doc) {
 
   /** @type {Set<Subscription>} */
   const subscriptions = new Set();
-  /** @type {Map<Subscription, Set<AutoUpdateDetail["type"]>>} */
+  /** @type {Map<Subscription, AutoUpdateDetail["type"]>} */
   const pending = new Map();
 
   const ResizeObserverCtor = win.ResizeObserver;
@@ -243,13 +222,12 @@ function createTracker(doc) {
   let listening = false;
   const visualViewport = win.visualViewport;
 
+  /* Keep one cause per subscription per frame, by priority. */
   function queue(subscription, type) {
-    let types = pending.get(subscription);
-    if (!types) {
-      types = new Set();
-      pending.set(subscription, types);
+    const current = pending.get(subscription);
+    if (current === undefined || TYPE_PRIORITY[type] > TYPE_PRIORITY[current]) {
+      pending.set(subscription, type);
     }
-    types.add(type);
   }
 
   function scheduleFlush() {
@@ -260,9 +238,9 @@ function createTracker(doc) {
       pending.clear();
       tick = false;
 
-      for (const [subscription, types] of notifications) {
+      for (const [subscription, type] of notifications) {
         if (!subscriptions.has(subscription) || !subscription.floating.isConnected) continue;
-        for (const type of types) subscription.callback({ type });
+        subscription.callback({ type });
       }
     });
   }
@@ -277,10 +255,7 @@ function createTracker(doc) {
 
     const primed = new Set();
     const observer = new ResizeObserverCtor((entries) => {
-      /* ResizeObserver reports every newly observed element once, before any
-       * size change happened. Swallow that delivery instead of unobserving and
-       * re-observing, which would report the element again on every frame for
-       * as long as the subscription lives. */
+      /* Ignore the initial delivery for each observed element. */
       let changed = false;
       for (const entry of entries) {
         if (primed.has(entry.target)) changed = true;
@@ -351,10 +326,8 @@ function trackerFor(element) {
 /**
  * Track geometry changes that may require repositioning.
  *
- * The callback is batched to animation frames and runs for captured document
- * scrolls, viewport resizes, and ResizeObserver changes to either the reference
- * or floating element. It is not invoked immediately; call `reposition()` once
- * before registering if initial placement is required.
+ * Track scroll, viewport resize, and both element sizes, once per frame.
+ * No initial callback: position once before subscribing.
  *
  * @param {Element | null} reference Optional reference element. Pass `null` for point-positioned surfaces.
  * @param {HTMLElement} floating
@@ -374,20 +347,15 @@ export function autoUpdate(reference, floating, callback) {
 }
 
 /**
- * Position a floating element relative to a reference element.
- *
- * The floating element should normally use `position: fixed`. This function
- * writes `left`, `top`, `data-placement`, `--arrow-x`, `--arrow-y`, and
- * `--available-height` to the floating element. Arrow percentages locate the
- * reference center inside the floating box and stay within `0%`-`100%`.
+ * One positioning pass.
  *
  * @param {PositionReference} reference
  * @param {HTMLElement} floating
- * @param {RepositionOptions} [options]
- * @returns {boolean} False when positioning cannot be performed: hidden floating element, missing reference rect, reference outside the boundary, or a document without a browsing context.
+ * @param {RepositionOptions} options
+ * @returns {{ width: number, height: number, roomChanged: boolean, placement: Placement } | null} Measured size and resolved placement, or null.
  */
-export function reposition(reference, floating, options = {}) {
-  if (!isVisible(floating)) return false;
+function positionOnce(reference, floating, options) {
+  if (!isVisible(floating)) return null;
 
   const placement = /** @type {Placement} */ (options.placement || "bottom-start");
   const distance = options.distance || 0;
@@ -396,76 +364,91 @@ export function reposition(reference, floating, options = {}) {
   const shiftPadding = options.shiftPadding ?? 4;
 
   let { side, align, crossAxis } = parsePlacement(placement);
-  /* Direction only changes logical alignment, and resolving it costs a style
-   * recalc on engines without `:dir()`. Centered placements never need it. */
+  /* Centered placements do not need direction. */
   const rtl = align ? isRTL(reference) : false;
 
   const rects = reference.getClientRects();
   const referenceRect = side === "bottom" ? rects[rects.length - 1] : rects[0];
-  if (!referenceRect) return false;
+  if (!referenceRect) return null;
 
   const boundary = getBoundary(reference, options);
-  if (!boundary || isOutsideBoundary(referenceRect, boundary)) return false;
+  if (!boundary || isOutsideBoundary(referenceRect, boundary)) return null;
 
   const floatingRect = getFloatingSize(floating);
-  let coords = computeCoords(referenceRect, floatingRect, side, align, rtl, distance);
+  /* Compare with padding; clamping may drop it to fit the boundary. */
+  const limits = {
+    x: { size: floatingRect.width, start: boundary.x, end: boundary.right },
+    y: { size: floatingRect.height, start: boundary.y, end: boundary.bottom },
+  };
+  const place = (nextSide, nextAlign) =>
+    computeCoords(referenceRect, floatingRect, nextSide, nextAlign, rtl, distance);
+  const overflowAt = (position, axis) => {
+    const { size, start, end } = limits[axis];
+    return overflowOn(position, size, start + shiftPadding, end - shiftPadding);
+  };
+  /* Remaining cross-axis overflow after an optional shift. */
+  const shiftedOverflowAt = (position, axis) => {
+    const { size, start, end } = limits[axis];
+    return overflowAt(
+      shift ? clampToBoundary(position, size, start, end, shiftPadding) : position,
+      axis,
+    );
+  };
+
+  let coords = place(side, align);
 
   if (flip) {
-    const x = Math.ceil(coords.x);
-    const y = Math.ceil(coords.y);
+    const mainAxis = crossAxis === "x" ? "y" : "x";
+    let overflow = overflowAt(coords[mainAxis], mainAxis);
 
-    if (
-      (crossAxis === "x" && (y < boundary.y || y + floatingRect.height >= boundary.bottom)) ||
-      (crossAxis === "y" && (x < boundary.x || x + floatingRect.width >= boundary.right))
-    ) {
-      side = flipSide(side);
-      coords = computeCoords(referenceRect, floatingRect, side, align, rtl, distance);
+    /* Opposite sides share cross-axis coordinates; compare the main axis. */
+    if (overflow > 0) {
+      const opposite = flipSide(side);
+      const flipped = place(opposite, align);
+      const flippedOverflow = overflowAt(flipped[mainAxis], mainAxis);
+
+      if (flippedOverflow < overflow) {
+        side = opposite;
+        coords = flipped;
+        overflow = flippedOverflow;
+      }
     }
 
-    if (
-      crossAxis === "y" &&
-      (coords.x < boundary.x || coords.x + floatingRect.width > boundary.right) &&
-      boundary.width - floatingRect.width < NARROW_INLINE_FLIP_FALLBACK
-    ) {
-      side = "top";
-      crossAxis = "x";
-      coords = computeCoords(referenceRect, floatingRect, side, align, rtl, distance);
+    /* Compare both axes after shifting before switching to top/bottom. */
+    if (mainAxis === "x" && overflow > 0) {
+      const above = place("top", align);
+      const below = place("bottom", align);
+      // Top and bottom share their x, so only y separates the two.
+      const useBottom = overflowAt(below.y, "y") < overflowAt(above.y, "y");
+      const candidate = useBottom ? below : above;
+      const swapped = overflowAt(candidate.y, "y") + shiftedOverflowAt(candidate.x, "x");
+
+      if (swapped < overflow + shiftedOverflowAt(coords.y, "y")) {
+        side = useBottom ? "bottom" : "top";
+        crossAxis = "x";
+        coords = candidate;
+      }
     }
   }
 
   if (crossAxis === "x" && shift && align) {
-    const minX = boundary.x + shiftPadding;
-    const maxX = boundary.right - shiftPadding;
-    const currentOverflow = getInlineOverflow(coords, floatingRect, minX, maxX);
+    const overflow = overflowAt(coords.x, "x");
 
-    if (currentOverflow > 0) {
+    if (overflow > 0) {
       const nextAlign = align === "end" ? "start" : "end";
-      const candidate = computeCoords(referenceRect, floatingRect, side, nextAlign, rtl, distance);
+      const candidate = place(side, nextAlign);
 
-      if (getInlineOverflow(candidate, floatingRect, minX, maxX) < currentOverflow) {
+      if (overflowAt(candidate.x, "x") < overflow) {
         align = nextAlign;
         coords = candidate;
       }
     }
   }
 
+  /* Shift only across the chosen side. */
   if (shift) {
-    coords.x = clampToBoundary(
-      coords.x,
-      floatingRect.width,
-      boundary.x,
-      boundary.right,
-      shiftPadding,
-    );
-    if (crossAxis === "y") {
-      coords.y = clampToBoundary(
-        coords.y,
-        floatingRect.height,
-        boundary.y,
-        boundary.bottom,
-        shiftPadding,
-      );
-    }
+    const { size, start, end } = limits[crossAxis];
+    coords[crossAxis] = clampToBoundary(coords[crossAxis], size, start, end, shiftPadding);
   }
 
   const arrowX = arrowPercent(
@@ -479,14 +462,54 @@ export function reposition(reference, floating, options = {}) {
     floatingRect.height,
   );
 
-  const availableHeight = getAvailableHeight(referenceRect, side, boundary, distance, shiftPadding);
+  const availableHeight = `${getAvailableHeight(referenceRect, side, boundary, distance, shiftPadding)}px`;
   const { style } = floating;
+  /* Reading the inline value does not trigger layout. */
+  const roomChanged = style.getPropertyValue("--available-height") !== availableHeight;
+
   style.left = `${coords.x}px`;
   style.top = `${coords.y}px`;
   style.setProperty("--arrow-x", `${arrowX}%`);
   style.setProperty("--arrow-y", `${arrowY}%`);
-  style.setProperty("--available-height", `${availableHeight}px`);
-  floating.dataset.placement = align ? `${side}-${align}` : side;
+  style.setProperty("--available-height", availableHeight);
+
+  const resolved = /** @type {Placement} */ (align ? `${side}-${align}` : side);
+  floating.dataset.placement = resolved;
+
+  return {
+    width: floatingRect.width,
+    height: floatingRect.height,
+    roomChanged,
+    placement: resolved,
+  };
+}
+
+/**
+ * Position a floating element relative to a reference element.
+ *
+ * Uses viewport coordinates; normally requires `position: fixed`.
+ * Writes left/top, data-placement, --arrow-x/y (0%-100%), and --available-height.
+ *
+ * @param {PositionReference} reference
+ * @param {HTMLElement} floating
+ * @param {RepositionOptions} [options]
+ * @returns {boolean} False when positioning cannot be performed: hidden floating element, missing reference rect, reference outside the boundary, or a document without a browsing context.
+ */
+export function reposition(reference, floating, options = {}) {
+  const measured = positionOnce(reference, floating, options);
+  if (!measured) return false;
+
+  /* If the new height limit resizes the box, correct once on the chosen side. */
+  if (measured.roomChanged) {
+    const settled = getFloatingSize(floating);
+    if (settled.width !== measured.width || settled.height !== measured.height) {
+      positionOnce(reference, floating, {
+        ...options,
+        placement: measured.placement,
+        flip: false,
+      });
+    }
+  }
 
   return true;
 }
