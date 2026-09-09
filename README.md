@@ -48,18 +48,19 @@ See [the Popover demo](demo/popover.html) for opening and cleanup.
 
 ### `reposition(reference, floating, options?)`
 
-Writes viewport coordinates to `left` and `top`. Returns `false` if the surface is
+Writes `left` and `top` in viewport coordinates by default. Returns `false` if the surface is
 not rendered, the reference has no rect or is outside the boundary, or the document
 has no browsing context. Otherwise returns `true`.
 
-| Option | Default | Behavior |
-| --- | --- | --- |
-| `placement` | `"bottom-start"` | `top`, `right`, `bottom`, `left`, optionally with `-start` or `-end`. |
-| `distance` | `0` | Gap from the reference in CSS pixels. |
-| `flip` | `true` | Use the opposite side if it overflows less. |
-| `shift` | `true` | Clamp on the cross axis: x for top/bottom, y for left/right. |
-| `shiftPadding` | `4` | Boundary padding in CSS pixels for side selection and shifting. |
-| `scope` | Visual viewport | Optional element whose border rect replaces the viewport boundary. |
+| Option            | Default          | Behavior                                                               |
+|-------------------|------------------|------------------------------------------------------------------------|
+| `placement`       | `"bottom-start"` | `top`, `right`, `bottom`, `left`, optionally with `-start` or `-end`.  |
+| `distance`        | `0`              | Gap from the reference in CSS pixels.                                  |
+| `flip`            | `true`           | Use the opposite side if it overflows less.                            |
+| `shift`           | `true`           | Clamp on the cross axis: x for top/bottom, y for left/right.           |
+| `shiftPadding`    | `4`              | Boundary padding in CSS pixels for side selection and shifting.        |
+| `scope`           | Visual viewport  | Optional element whose border rect replaces the viewport boundary.     |
+| `coordinateSpace` | `"viewport"`     | Space the written `left`/`top` use. `"document"` adds the page scroll. |
 
 Physical `left`/`right` stay physical in RTL. Horizontal `start`/`end` alignment
 follows the reference direction.
@@ -71,10 +72,57 @@ that reduces overflow after shifting. Ties keep the current side.
 Clamping drops padding when needed to fit. Oversized surfaces align to the boundary
 start on the cross axis. Remaining overflow is accepted; consumers control sizing.
 
-Use `position: fixed` in the top layer or outside ancestors that establish a fixed
+With the default `coordinateSpace: "viewport"`, use `position: fixed` in the top
+layer or outside ancestors that establish a fixed
 containing block (`transform`, `filter`, `perspective`, containment, or related
 `will-change`). The engine does not set `position` or convert coordinates for these
 ancestors.
+
+### Coordinate space
+
+Everything is measured in viewport coordinates. `coordinateSpace` only changes
+what gets written.
+
+|                      | `"viewport"` (default)          | `"document"`                                              |
+|----------------------|---------------------------------|-----------------------------------------------------------|
+| Written `left`/`top` | `getBoundingClientRect()` space | plus `scrollX`/`scrollY`                                  |
+| Expects              | `position: fixed`               | `position: absolute` against the initial containing block |
+| Page scroll          | corrected by `autoUpdate()`     | carried by the browser                                    |
+
+Browsers scroll asynchronously: the page can move before any JavaScript runs.
+A `fixed` surface waits for `autoUpdate()` and can visibly trail its reference
+during touch scrolling. A surface written in document coordinates is scrolled by
+the browser along with the page and stays attached without a correction.
+
+This trades one case for another, so it is opt-in:
+
+| Reference                        | With `"document"`                                     |
+|----------------------------------|-------------------------------------------------------|
+| Moves with the page              | Better: stays attached with no correction             |
+| Inside a nested scroll container | Unchanged: that scroll is still `autoUpdate()` work   |
+| `fixed`, or `sticky` while stuck | Worse: the surface scrolls away until the next update |
+
+`"document"` requires the containing block to be the initial one. An open
+popover qualifies: in the top layer, an absolutely positioned box resolves
+against the initial containing block rather than a positioned ancestor. The
+engine never looks for an offset parent and never compensates for one, so an
+ordinary absolute element inside `position: relative` lands off by that
+ancestor's position.
+
+```css
+.tooltip[popover] {
+  position: absolute;
+  inset: auto;
+  margin: 0;
+}
+```
+
+```js
+reposition(anchor, tooltip, { placement: "top", distance: 6, coordinateSpace: "document" });
+```
+
+`autoUpdate()` is still required: flip, shift, and the available height are
+re-evaluated on scroll whatever the space.
 
 ### Sizing and arrows
 
@@ -123,6 +171,9 @@ repositionAt(event.clientX, event.clientY, menu, {
   distance: 4,
 });
 ```
+
+Inputs remain viewport coordinates (`clientX`/`clientY`), even with
+`coordinateSpace: "document"`.
 
 ### `autoUpdate(reference, floating, callback)`
 
@@ -189,6 +240,5 @@ bun run serve
 - [Scroll tracking vs Tippy](demo/vs-tippy.html)
 - [Actual tooltip vs Tippy](demo/actual-vs-tippy.html)
 
-The last two measure how far a surface drifts from its reference during a
-scroll. Latency only shows up when the main thread is behind, which is the
-normal state of a phone and not of a desktop, so read them on a device.
+Compare the last two demos using native touch scrolling on a mobile device.
+JavaScript-driven auto-scroll may not reproduce the lag seen during touch scrolling.

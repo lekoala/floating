@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- Add `coordinateSpace: "viewport" | "document"` to `reposition()` and `repositionAt()`.
+  `"document"` adds the page scroll to the written `left`/`top`, for an absolutely
+  positioned surface whose containing block is the initial one, such as a top-layer
+  popover. The browser then scrolls it with the page instead of waiting for
+  `autoUpdate()`, which removes the lag visible on touch devices, where scrolling is
+  driven asynchronously. Measurement, flip, shift, arrows and available height stay in
+  viewport coordinates, and no offset parent is ever resolved. Default is unchanged.
+
+## 0.1.1
+
+- Keep the preferred side unless the opposite side overflows less, including
+  the top/bottom fallback which now compares shifted overflow on both axes.
+- Clamp only on the cross axis of the resolved side, using `shiftPadding`
+  for side selection and dropping it to fit when needed.
+- Call `autoUpdate()` back at most once per frame, keeping the most specific
+  change (`scroll` < `resize` < `element-resize`).
+- Settle a size driven by `--available-height` with a single corrective pass
+  pinned to the resolved placement.
+- Add real-browser coverage (`test/browser.test.js`), a popover demo, and
+  expanded unit tests; refresh `README.md` and demos.
+  
 ## 0.1.0
 
 - Initial standalone package.

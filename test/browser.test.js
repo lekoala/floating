@@ -361,3 +361,78 @@ browserTest(
   },
   20000,
 );
+
+browserTest(
+  "document coordinates position an absolute top-layer popover against the page",
+  async () => {
+    const result = await run(`
+      document.body.style.height = "3000px";
+      // A positioned ancestor that would capture an ordinary absolute box, to
+      // prove the top layer resolves against the initial containing block.
+      const host = el("div", "position:relative; left:50px; top:400px; width:300px; height:2000px");
+      const anchor = el("button", "position:absolute; left:20px; top:600px; width:140px; height:34px; margin:0", host);
+
+      const panel = document.createElement("div");
+      panel.setAttribute("popover", "manual");
+      panel.style.cssText = "position:absolute; inset:auto; margin:0; border:0; padding:0; width:220px; height:90px";
+      host.append(panel);
+      panel.showPopover();
+
+      const options = { placement: "bottom-start", distance: 6, coordinateSpace: "document" };
+      window.scrollTo(0, 700);
+      await frame();
+      reposition(anchor, panel, options);
+
+      const before = (() => {
+        const a = anchor.getBoundingClientRect();
+        const p = panel.getBoundingClientRect();
+        return { left: p.left - a.left, gap: p.top - a.bottom };
+      })();
+      const written = { left: panel.style.left, top: panel.style.top };
+
+      // Scroll without repositioning: the browser has to carry the panel along.
+      window.scrollTo(0, 900);
+      await frame();
+      const a = anchor.getBoundingClientRect();
+      const p = panel.getBoundingClientRect();
+      const after = { left: p.left - a.left, gap: p.top - a.bottom };
+      const unchanged = panel.style.left === written.left && panel.style.top === written.top;
+
+      // Control: an identical sibling that never entered the top layer. It
+      // resolves against the positioned host instead, and lands off by exactly
+      // where that host sits in the document.
+      const plain = el("div", "position:absolute; margin:0; width:220px; height:90px", host);
+      plain.style.left = written.left;
+      plain.style.top = written.top;
+      const hostBox = host.getBoundingClientRect();
+      const panelBox = panel.getBoundingClientRect();
+      const plainBox = plain.getBoundingClientRect();
+      const captured = {
+        x: plainBox.left - panelBox.left,
+        y: plainBox.top - panelBox.top,
+      };
+      const hostOrigin = {
+        x: hostBox.left + window.scrollX,
+        y: hostBox.top + window.scrollY,
+      };
+
+      panel.hidePopover();
+      return { before, after, unchanged, captured, hostOrigin, scrolled: window.scrollY };
+    `);
+
+    expect(result.scrolled).toBe(900);
+    expect(result.before.left).toBeCloseTo(0, 1);
+    expect(result.before.gap).toBeCloseTo(6, 1);
+    // Nothing repositioned it, yet it stayed glued: that is the whole point.
+    expect(result.unchanged).toBe(true);
+    expect(result.after.left).toBeCloseTo(0, 1);
+    expect(result.after.gap).toBeCloseTo(6, 1);
+    // The same coordinates outside the top layer are captured by `host`, which
+    // is what the popover escapes.
+    expect(result.hostOrigin.x).toBeGreaterThan(0);
+    expect(result.hostOrigin.y).toBeGreaterThan(0);
+    expect(result.captured.x).toBeCloseTo(result.hostOrigin.x, 1);
+    expect(result.captured.y).toBeCloseTo(result.hostOrigin.y, 1);
+  },
+  20000,
+);

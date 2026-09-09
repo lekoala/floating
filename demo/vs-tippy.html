@@ -339,16 +339,6 @@
 
     const OPTIONS = { placement: "bottom-start", distance: 8, flip: false, shift: false };
 
-    /* Prototype of `coordinateSpace: "document"`: the engine still computes
-       everything in viewport space; only the final write is converted. */
-    function repositionInDocumentSpace(anchor, tip, options) {
-      if (!reposition(anchor, tip, options)) return false;
-      const win = tip.ownerDocument.defaultView;
-      tip.style.left = `${Number.parseFloat(tip.style.left) + win.scrollX}px`;
-      tip.style.top = `${Number.parseFloat(tip.style.top) + win.scrollY}px`;
-      return true;
-    }
-
     const hasTippy = typeof window.tippy === "function";
     document.querySelector("#warning").hidden = hasTippy;
 
@@ -396,8 +386,7 @@
       document.body.append(tip);
       tip.showPopover();
 
-      const write = space === "document" ? repositionInDocumentSpace : reposition;
-      const update = () => write(anchor, tip, OPTIONS);
+      const update = () => reposition(anchor, tip, { ...OPTIONS, coordinateSpace: space });
 
       update();
       /* The control exists to calibrate the numbers: it is the same engine, one

@@ -1175,3 +1175,77 @@ test("distance is applied away from the reference on all four sides", async () =
     assert.equal(float.style.top, coords.top);
   }
 });
+
+test("coordinateSpace document adds the page scroll to the written coordinates", async () => {
+  const { reposition, repositionAt } = await api();
+  setViewport();
+  Object.defineProperty(window, "scrollX", { configurable: true, value: 40 });
+  Object.defineProperty(window, "scrollY", { configurable: true, value: 500 });
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 100, width: 60, height: 24 });
+  mockRect(float, { x: 0, y: 0, width: 120, height: 80 });
+
+  const options = { placement: "bottom-start", distance: 8 };
+  reposition(ref, float, options);
+  assert.equal(float.style.left, "100px");
+  assert.equal(float.style.top, "132px");
+
+  reposition(ref, float, { ...options, coordinateSpace: "document" });
+  assert.equal(float.style.left, "140px");
+  assert.equal(float.style.top, "632px");
+
+  // Only the write moves: the boundary, the arrow and the room stay viewport work.
+  assert.equal(float.dataset.placement, "bottom-start");
+  assert.equal(float.style.getPropertyValue("--arrow-x"), "25%");
+  assert.equal(float.style.getPropertyValue("--available-height"), "632px");
+
+  // Point positioning takes viewport coordinates whatever the space is.
+  repositionAt(100, 100, float, { ...options, coordinateSpace: "document" });
+  assert.equal(float.style.left, "140px");
+  assert.equal(float.style.top, "608px");
+
+  delete window.scrollX;
+  delete window.scrollY;
+});
+
+test("coordinateSpace document survives the corrective pass", async () => {
+  const { reposition } = await api();
+  setViewport();
+  Object.defineProperty(window, "scrollX", { configurable: true, value: 0 });
+  Object.defineProperty(window, "scrollY", { configurable: true, value: 300 });
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 400, width: 60, height: 24 });
+  mockRect(float, { x: 0, y: 0, width: 120, height: 200 });
+
+  // A new height limit shrinks the box, so `reposition()` positions twice. On
+  // `top` the second pass moves the box down, which a doubled scroll offset
+  // would not survive.
+  let height = 200;
+  Object.defineProperty(float, "offsetHeight", {
+    configurable: true,
+    get: () => height,
+  });
+  const original = float.style.setProperty.bind(float.style);
+  float.style.setProperty = (name, value) => {
+    if (name === "--available-height") height = 120;
+    original(name, value);
+  };
+
+  const options = { placement: "top", distance: 8, coordinateSpace: "document" };
+  reposition(ref, float, options);
+  // 400 - 120 - 8 in viewport space, and the page scroll added exactly once.
+  assert.equal(float.style.top, "572px");
+
+  // The same case in viewport space differs by exactly the page scroll.
+  height = 200;
+  float.style.removeProperty("--available-height");
+  reposition(ref, float, { ...options, coordinateSpace: "viewport" });
+  assert.equal(float.style.top, "272px");
+
+  delete window.scrollX;
+  delete window.scrollY;
+});

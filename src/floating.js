@@ -17,6 +17,7 @@
  * @property {boolean | undefined} [shift=true] Clamp on the cross axis only.
  * @property {number | undefined} [shiftPadding=4] Boundary padding in CSS pixels for side selection and shifting. Clamping may drop it to fit.
  * @property {HTMLElement | undefined} [scope] Optional clipping/positioning boundary instead of the visual viewport.
+ * @property {"viewport" | "document" | undefined} [coordinateSpace="viewport"] Space the written `left`/`top` are expressed in. Everything else stays viewport-relative.
  */
 
 /**
@@ -467,8 +468,15 @@ function positionOnce(reference, floating, options) {
   /* Reading the inline value does not trigger layout. */
   const roomChanged = style.getPropertyValue("--available-height") !== availableHeight;
 
-  style.left = `${coords.x}px`;
-  style.top = `${coords.y}px`;
+  /* Everything above is viewport space; only the write may leave it. Document
+   * coordinates are the viewport ones plus the page scroll, which holds when the
+   * containing block is the initial one. */
+  const win = options.coordinateSpace === "document" ? reference.ownerDocument.defaultView : null;
+  const originX = win ? win.scrollX : 0;
+  const originY = win ? win.scrollY : 0;
+
+  style.left = `${coords.x + originX}px`;
+  style.top = `${coords.y + originY}px`;
   style.setProperty("--arrow-x", `${arrowX}%`);
   style.setProperty("--arrow-y", `${arrowY}%`);
   style.setProperty("--available-height", availableHeight);
@@ -487,7 +495,11 @@ function positionOnce(reference, floating, options) {
 /**
  * Position a floating element relative to a reference element.
  *
- * Uses viewport coordinates; normally requires `position: fixed`.
+ * Measures in viewport coordinates; normally requires `position: fixed`.
+ * With `coordinateSpace: "document"` the written coordinates are the viewport
+ * ones plus the page scroll, for an absolutely positioned element whose
+ * containing block is the initial one, such as a top-layer popover. Positioned
+ * ancestors are never resolved or compensated for.
  * Writes left/top, data-placement, --arrow-x/y (0%-100%), and --available-height.
  *
  * @param {PositionReference} reference
@@ -516,6 +528,9 @@ export function reposition(reference, floating, options = {}) {
 
 /**
  * Position a floating element relative to a viewport point, useful for context menus.
+ *
+ * `x` and `y` stay viewport coordinates whatever `coordinateSpace` is: it only
+ * describes what gets written.
  *
  * @param {number} x
  * @param {number} y
