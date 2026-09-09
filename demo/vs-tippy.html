@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>@lekoala/floating — scroll tracking vs Tippy</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tippy.js@6/dist/tippy.css">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --edge: color-mix(in srgb, CanvasText 25%, Canvas);
+      --muted: color-mix(in srgb, CanvasText 55%, Canvas);
+      --accent: color-mix(in srgb, CanvasText 12%, Canvas);
+      --a: #2563eb;
+      --b: #059669;
+      --c: #7c3aed;
+      --t: #d97706;
+      --l: #64748b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font: 15px/1.5 system-ui, sans-serif;
+      margin: 0;
+      padding: 1.5rem clamp(1rem, 4vw, 3rem) 12rem;
+      background: Canvas;
+      color: CanvasText;
+    }
+
+    h1 {
+      font-size: 1.35rem;
+      margin: 0 0 .25rem;
+    }
+
+    h2 {
+      font-size: 1rem;
+      margin: 0 0 .35rem;
+    }
+
+    p {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      max-width: 68ch;
+    }
+
+    code {
+      font-family: ui-monospace, monospace;
+      font-size: .85em;
+      background: var(--accent);
+      padding: .1rem .3rem;
+      border-radius: .25rem;
+    }
+
+    button {
+      font: inherit;
+      color: inherit;
+      padding: .4rem .6rem;
+      border: 1px solid var(--edge);
+      border-radius: .35rem;
+      background: var(--accent);
+      cursor: pointer;
+    }
+
+    /* Scenarios */
+
+    section {
+      border: 1px solid var(--edge);
+      border-radius: .5rem;
+      padding: 1rem;
+      margin: 0 0 1.25rem;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: .5rem;
+      margin: .75rem 0;
+    }
+
+    .row button {
+      inline-size: 100%;
+      font-size: .7rem;
+      padding: .45rem .15rem;
+      border-block-end-width: 3px;
+    }
+
+    .row button[data-engine="fixedRaf"] {
+      border-block-end-color: var(--a);
+    }
+
+    .row button[data-engine="fixedSync"] {
+      border-block-end-color: var(--b);
+    }
+
+    .row button[data-engine="docRaf"] {
+      border-block-end-color: var(--c);
+    }
+
+    .row button[data-engine="tippy"] {
+      border-block-end-color: var(--t);
+    }
+
+    .row button[data-engine="lagged"] {
+      border-block-end-color: var(--l);
+    }
+
+    .filler {
+      block-size: 80vh;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      background: repeating-linear-gradient(180deg, transparent 0 39px, var(--accent) 39px 40px);
+    }
+
+    .scroller {
+      block-size: 260px;
+      overflow: auto;
+      border: 1px dashed var(--edge);
+      border-radius: .4rem;
+      padding: 0 .75rem;
+      overscroll-behavior: contain;
+    }
+
+    .scroller .filler {
+      block-size: 400px;
+    }
+
+    .sticky-row {
+      position: sticky;
+      inset-block-start: .5rem;
+      z-index: 1;
+      background: Canvas;
+      padding-block: .25rem;
+    }
+
+    /* Floating surfaces */
+
+    /* The UA sheet centers an open popover with `inset: 0; margin: auto`. */
+    .tip {
+      position: fixed;
+      inset: auto;
+      margin: 0;
+      inline-size: max-content;
+      max-inline-size: min(9rem, 17vw);
+      padding: .3rem .4rem;
+      font-size: .7rem;
+      line-height: 1.3;
+      hyphens: auto;
+      border: 1px solid var(--edge);
+      border-inline-start-width: 4px;
+      border-radius: .35rem;
+      background: Canvas;
+      color: CanvasText;
+      box-shadow: 0 .4rem 1rem rgb(0 0 0 / .2);
+    }
+
+    /* The only difference between the three floating variants. In the top layer
+       an absolutely positioned box resolves against the initial containing
+       block, so viewport coordinates plus the page scroll are document
+       coordinates. */
+    .tip[data-space="document"] {
+      position: absolute;
+    }
+
+    .tip[data-engine="fixedRaf"] {
+      border-inline-start-color: var(--a);
+    }
+
+    .tip[data-engine="fixedSync"] {
+      border-inline-start-color: var(--b);
+    }
+
+    .tip[data-engine="docRaf"] {
+      border-inline-start-color: var(--c);
+    }
+
+    .tip[data-engine="lagged"] {
+      border-inline-start-color: var(--l);
+    }
+
+    .tippy-box {
+      font-size: .78rem;
+    }
+
+    /* Metrics panel */
+
+    .panel {
+      position: fixed;
+      inset-block-end: 0;
+      inset-inline: 0;
+      z-index: 100;
+      padding: .5rem clamp(1rem, 4vw, 3rem);
+      background: color-mix(in srgb, Canvas 92%, CanvasText);
+      border-block-start: 1px solid var(--edge);
+    }
+
+    .panel table {
+      border-collapse: collapse;
+      font-size: .75rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .panel th,
+    .panel td {
+      text-align: end;
+      padding: .1rem .5rem;
+      min-inline-size: 5rem;
+    }
+
+    .panel th:first-child,
+    .panel td:first-child {
+      text-align: start;
+      min-inline-size: 15rem;
+    }
+
+    .panel thead th {
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .swatch {
+      display: inline-block;
+      inline-size: .6rem;
+      block-size: .6rem;
+      border-radius: .15rem;
+      margin-inline-end: .4rem;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .4rem;
+      margin-block-start: .5rem;
+    }
+
+    .note {
+      font-size: .72rem;
+      color: var(--muted);
+      margin: .4rem 0 0;
+      max-width: 90ch;
+    }
+
+    #warning:not([hidden]) {
+      display: block;
+      color: #b91c1c;
+      font-size: .8rem;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Scroll tracking: <code>@lekoala/floating</code> vs Tippy</h1>
+  <p>
+    Five surfaces are pinned to five neighbouring buttons and left open. Scroll, and compare how
+    tightly each one stays glued to its button. Flip and shift are disabled everywhere, so the only
+    thing being compared is tracking. The last one is a control: the current engine, deliberately
+    held back by one frame, so the table shows what a frame of latency is worth in pixels.
+  </p>
+  <p id="warning" hidden>Tippy could not be loaded from the CDN; its column is unavailable offline.</p>
+
+  <section>
+    <h2>1. Page scroll</h2>
+    <p>The main case. The reference scrolls with the document.</p>
+    <div class="filler">scroll the page</div>
+    <div class="row" data-scenario="page"></div>
+    <div class="filler">keep scrolling</div>
+  </section>
+
+  <section>
+    <h2>2. Nested scroll container</h2>
+    <p>
+      The reference scrolls inside an <code>overflow: auto</code> box, not with the document.
+      No coordinate space makes this free: every engine has to track it in JS.
+    </p>
+    <div class="scroller" id="scroller">
+      <div class="filler">scroll inside</div>
+      <div class="row" data-scenario="inner"></div>
+      <div class="filler">keep scrolling</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Sticky reference</h2>
+    <p>
+      The reference sticks to the top of the viewport while the page scrolls, so it stops moving
+      with the document. Document coordinates are the wrong space here.
+    </p>
+    <div class="row sticky-row" data-scenario="sticky"></div>
+    <div class="filler">scroll the page</div>
+    <div class="filler">still scrolling</div>
+  </section>
+
+  <div class="panel">
+    <table>
+      <thead>
+        <tr>
+          <th>engine</th>
+          <th>max drift</th>
+          <th>mean drift</th>
+          <th>samples</th>
+        </tr>
+      </thead>
+      <tbody id="metrics"></tbody>
+    </table>
+    <div class="actions">
+      <button id="close" type="button">Close all</button>
+      <button id="reset" type="button">Reset metrics</button>
+      <button id="auto" type="button">Auto scroll test</button>
+      <label><input id="jank" type="checkbox"> busy main thread</label>
+    </div>
+    <p class="note">
+      Drift is how far the surface-to-reference offset has moved away from its offset at rest,
+      sampled once per frame in a task posted from <code>requestAnimationFrame</code> so it observes
+      the frame that was just rendered. Frames where the reference is off screen are not counted:
+      <code>reposition()</code> declines those by contract. Read the numbers against the control
+      row, not in absolute terms. A busy main thread is what turns latency into visible drift, so
+      the checkbox burns 40&nbsp;ms per frame; on a phone the page usually supplies that by itself.
+    </p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2/dist/umd/popper.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tippy.js@6/dist/tippy.umd.min.js"></script>
+  <script type="module">
+    import { autoUpdate, reposition } from "../src/floating.js";
+
+    const OPTIONS = { placement: "bottom-start", distance: 8, flip: false, shift: false };
+
+    /* Prototype of `coordinateSpace: "document"`: the engine still computes
+       everything in viewport space; only the final write is converted. */
+    function repositionInDocumentSpace(anchor, tip, options) {
+      if (!reposition(anchor, tip, options)) return false;
+      const win = tip.ownerDocument.defaultView;
+      tip.style.left = `${Number.parseFloat(tip.style.left) + win.scrollX}px`;
+      tip.style.top = `${Number.parseFloat(tip.style.top) + win.scrollY}px`;
+      return true;
+    }
+
+    const hasTippy = typeof window.tippy === "function";
+    document.querySelector("#warning").hidden = hasTippy;
+
+    /** Each engine opens a surface for an anchor and returns `{ rect, close }`. */
+    const ENGINES = {
+      fixedRaf: {
+        label: "floating — fixed + rAF (current)",
+        short: "fixed + rAF",
+        color: "var(--a)",
+        open: (anchor) => trackFloating(anchor, "fixedRaf", "viewport", false),
+      },
+      fixedSync: {
+        label: "floating — fixed + sync scroll",
+        short: "fixed + sync",
+        color: "var(--b)",
+        open: (anchor) => trackFloating(anchor, "fixedSync", "viewport", true),
+      },
+      docRaf: {
+        label: "floating — document space + rAF",
+        short: "document + rAF",
+        color: "var(--c)",
+        open: (anchor) => trackFloating(anchor, "docRaf", "document", false),
+      },
+      tippy: {
+        label: "Tippy 6 (Popper, absolute)",
+        short: "Tippy",
+        color: "var(--t)",
+        open: hasTippy ? openTippy : null,
+      },
+      lagged: {
+        label: "control — fixed, one frame late",
+        short: "1 frame late",
+        color: "var(--l)",
+        open: (anchor) => trackFloating(anchor, "lagged", "viewport", false, true),
+      },
+    };
+
+    function trackFloating(anchor, engine, space, syncScroll, lag = false) {
+      const tip = document.createElement("div");
+      tip.className = "tip";
+      tip.popover = "manual";
+      tip.dataset.engine = engine;
+      tip.dataset.space = space;
+      tip.textContent = ENGINES[engine].short;
+      document.body.append(tip);
+      tip.showPopover();
+
+      const write = space === "document" ? repositionInDocumentSpace : reposition;
+      const update = () => write(anchor, tip, OPTIONS);
+
+      update();
+      /* The control exists to calibrate the numbers: it is the same engine, one
+         frame behind, so it shows what a frame of latency costs in pixels. */
+      const stop = autoUpdate(anchor, tip, lag ? () => requestAnimationFrame(update) : update);
+
+      /* Deliberately naive: `autoUpdate()` still fires for the same scroll, one
+         frame later. Repositioning is idempotent, so this only measures whether
+         landing earlier in the frame is visible. */
+      if (syncScroll) {
+        document.addEventListener("scroll", update, { capture: true, passive: true });
+        window.visualViewport?.addEventListener("scroll", update, { passive: true });
+      }
+
+      return {
+        rect: () => tip.getBoundingClientRect(),
+        close() {
+          stop();
+          if (syncScroll) {
+            document.removeEventListener("scroll", update, { capture: true });
+            window.visualViewport?.removeEventListener("scroll", update);
+          }
+          tip.remove();
+        },
+      };
+    }
+
+    function openTippy(anchor) {
+      const instance = window.tippy(anchor, {
+        content: ENGINES.tippy.short,
+        trigger: "manual",
+        hideOnClick: false,
+        placement: "bottom-start",
+        offset: [0, 8],
+        animation: false,
+        duration: 0,
+        arrow: false,
+        maxWidth: 100,
+        popperOptions: {
+          modifiers: [
+            { name: "flip", enabled: false },
+            { name: "preventOverflow", enabled: false },
+          ],
+        },
+      });
+      instance.show();
+
+      return {
+        rect: () => instance.popper.getBoundingClientRect(),
+        close: () => instance.destroy(),
+      };
+    }
+
+    /* Anchors */
+
+    /** @type {Map<HTMLElement, { engine: string, surface: object, base: object | null }>} */
+    const open = new Map();
+
+    function toggle(anchor) {
+      const entry = open.get(anchor);
+      if (entry) {
+        entry.surface.close();
+        open.delete(anchor);
+        return;
+      }
+
+      const engine = anchor.dataset.engine;
+      const surface = ENGINES[engine].open?.(anchor);
+      if (!surface) return;
+      open.set(anchor, { engine, surface, base: null });
+    }
+
+    for (const row of document.querySelectorAll(".row")) {
+      for (const [engine, config] of Object.entries(ENGINES)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.engine = engine;
+        button.disabled = !config.open;
+        button.textContent = config.short;
+        button.title = config.label;
+        button.addEventListener("click", () => toggle(button));
+        row.append(button);
+      }
+    }
+
+    function openScenario(scenario) {
+      closeAll();
+      for (const button of document.querySelectorAll(`.row[data-scenario="${scenario}"] button`)) {
+        if (!button.disabled) toggle(button);
+      }
+      resetStats();
+    }
+
+    function closeAll() {
+      for (const [anchor] of [...open]) toggle(anchor);
+    }
+
+    /* Drift sampling */
+
+    const stats = new Map();
+
+    function resetStats() {
+      stats.clear();
+      for (const entry of open.values()) entry.base = null;
+      render();
+    }
+
+    let lastScrollAt = 0;
+    const markScroll = () => {
+      lastScrollAt = performance.now();
+    };
+    document.addEventListener("scroll", markScroll, { capture: true, passive: true });
+    window.visualViewport?.addEventListener("scroll", markScroll, { passive: true });
+
+    function sample() {
+      const scrolling = performance.now() - lastScrollAt < 200;
+
+      for (const [anchor, entry] of open) {
+        const reference = anchor.getBoundingClientRect();
+        /* A reference outside the viewport is not positionable, by contract:
+           `reposition()` returns false and leaves the surface alone. Counting
+           those frames would measure the contract, not the tracking. */
+        if (
+          reference.bottom < 0 ||
+          reference.top > window.innerHeight ||
+          reference.right < 0 ||
+          reference.left > window.innerWidth
+        ) {
+          continue;
+        }
+
+        const surface = entry.surface.rect();
+        const offset = { x: surface.left - reference.left, y: surface.top - reference.bottom };
+
+        /* At rest the offset is the truth; while scrolling it is the error. */
+        if (!scrolling || !entry.base) {
+          entry.base = offset;
+          continue;
+        }
+
+        const drift = Math.hypot(offset.x - entry.base.x, offset.y - entry.base.y);
+        let stat = stats.get(entry.engine);
+        if (!stat) {
+          stat = { max: 0, sum: 0, count: 0 };
+          stats.set(entry.engine, stat);
+        }
+        stat.max = Math.max(stat.max, drift);
+        stat.sum += drift;
+        stat.count += 1;
+      }
+    }
+
+    const metrics = document.querySelector("#metrics");
+
+    function render() {
+      metrics.innerHTML = Object.entries(ENGINES)
+        .map(([engine, config]) => {
+          const stat = stats.get(engine);
+          const cells = stat
+            ? [`${stat.max.toFixed(1)} px`, `${(stat.sum / stat.count).toFixed(2)} px`, stat.count]
+            : ["—", "—", "—"];
+          return `<tr><td><span class="swatch" style="background:${config.color}"></span>${config.label}</td>${cells
+            .map((cell) => `<td>${cell}</td>`)
+            .join("")}</tr>`;
+        })
+        .join("");
+    }
+
+    /* Sampling runs in a task posted from rAF, so it observes the frame that was
+       just rendered instead of racing the engines inside the same frame. */
+    const channel = new MessageChannel();
+    let frames = 0;
+    channel.port1.onmessage = () => {
+      sample();
+      if (frames++ % 6 === 0) render();
+      requestAnimationFrame(() => channel.port2.postMessage(0));
+    };
+    requestAnimationFrame(() => channel.port2.postMessage(0));
+    render();
+
+    /* A scroll only drifts when the main thread cannot keep up with it. On a
+       phone that comes from the page itself; here it has to be simulated, or
+       every engine looks perfect. */
+    const jank = document.querySelector("#jank");
+    let burnMs = 0;
+
+    function burnFrame() {
+      if (!burnMs) return;
+      const until = performance.now() + burnMs;
+      while (performance.now() < until) { /* busy */ }
+      requestAnimationFrame(burnFrame);
+    }
+
+    function setJank(ms) {
+      const running = burnMs > 0;
+      burnMs = ms;
+      jank.checked = ms > 0;
+      if (ms > 0 && !running) requestAnimationFrame(burnFrame);
+    }
+
+    jank.addEventListener("change", () => setJank(jank.checked ? 40 : 0));
+
+    /* Actions */
+
+    document.querySelector("#close").addEventListener("click", closeAll);
+    document.querySelector("#reset").addEventListener("click", resetStats);
+
+    /* Smooth scrolling is driven by the compositor, which is the closest thing
+       to a touch scroll that a click can trigger. */
+    document.querySelector("#auto").addEventListener("click", () => runAutoScroll());
+
+    async function runAutoScroll(distance = 200) {
+      const [anchor] = [...open.keys()];
+      if (!anchor) return;
+
+      const target = anchor.closest(".scroller") || window;
+      /* Keep the reference on screen for the whole run, so every frame counts. */
+      anchor.scrollIntoView({ block: "center" });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      resetStats();
+
+      for (const direction of [1, -1, 1, -1]) {
+        target.scrollBy({ top: distance * direction, behavior: "smooth" });
+        await new Promise((resolve) => setTimeout(resolve, 900));
+      }
+      render();
+      return Object.fromEntries(
+        [...stats].map(([engine, stat]) => [
+          engine,
+          { max: stat.max, mean: stat.sum / stat.count, samples: stat.count },
+        ]),
+      );
+    }
+
+    window.demo = {
+      toggle,
+      openScenario,
+      closeAll,
+      resetStats,
+      runAutoScroll,
+      stats,
+      open,
+      setJank,
+    };
+  </script>
+</body>
+
+</html>

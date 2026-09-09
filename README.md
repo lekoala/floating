@@ -186,3 +186,4 @@ npx serve .
 - [Basic](demo/basic.html)
 - [Popover](demo/popover.html)
 - [All features](demo/index.html)
+- [Scroll tracking vs Tippy](demo/vs-tippy.html)
