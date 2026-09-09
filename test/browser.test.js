@@ -90,6 +90,9 @@ function run(body) {
     document.body.replaceChildren();
     document.body.style.height = "";
     window.scrollTo(0, 0);
+    // Drain viewport events from device emulation and the previous case before
+    // a new subscription can mistake them for changes to its own fixture.
+    await frame();
     ${body}
   })()`);
 }
@@ -218,11 +221,11 @@ browserTest(
       }
 
       const options = { placement: "top", distance: 8, flip: false };
-      let updates = 0;
+      const updates = [];
       // Exactly what the README prescribes: position once, then track.
       reposition(anchor, panel, options);
-      const stop = autoUpdate(anchor, panel, () => {
-        updates += 1;
+      const stop = autoUpdate(anchor, panel, (detail) => {
+        updates.push(detail.type);
         reposition(anchor, panel, options);
       });
 
@@ -239,7 +242,7 @@ browserTest(
     expect(result.gap).toBeCloseTo(8, 1);
     expect(result.top).toBeCloseTo(4, 1);
     expect(result.height).toBeCloseTo(188, 1);
-    expect(result.updates).toBe(0);
+    expect(result.updates).toEqual([]);
   },
   20000,
 );

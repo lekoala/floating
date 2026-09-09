@@ -177,8 +177,7 @@ JSDoc generates the TypeScript declarations. Unit tests run under Bun and Node.
 `bun run test:browser` runs Chrome checks through `Bun.WebView`; they skip when no
 browser is available.
 
-Open the demos in a real browser, on extensionless routes (`/vs-tippy`, and `/`
-for the index):
+Serve the repository to open the demos in a real browser:
 
 ```sh
 bun run serve
