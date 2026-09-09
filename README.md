@@ -177,13 +177,19 @@ JSDoc generates the TypeScript declarations. Unit tests run under Bun and Node.
 `bun run test:browser` runs Chrome checks through `Bun.WebView`; they skip when no
 browser is available.
 
-Serve the repository to open the demos:
+Open the demos in a real browser, on extensionless routes (`/vs-tippy`, and `/`
+for the index):
 
 ```sh
-npx serve .
+bun run serve
 ```
 
 - [Basic](demo/basic.html)
 - [Popover](demo/popover.html)
 - [All features](demo/index.html)
 - [Scroll tracking vs Tippy](demo/vs-tippy.html)
+- [Actual tooltip vs Tippy](demo/actual-vs-tippy.html)
+
+The last two measure how far a surface drifts from its reference during a
+scroll. Latency only shows up when the main thread is behind, which is the
+normal state of a phone and not of a desktop, so read them on a device.

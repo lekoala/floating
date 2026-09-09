@@ -38,6 +38,7 @@
   },
   "scripts": {
     "test": "bun test",
+    "serve": "bun ./demo/*.html",
     "test:node": "node --test test/floating.test.js",
     "types": "tsc -p tsconfig.types.json",
     "typecheck": "tsc -p tsconfig.check.json",

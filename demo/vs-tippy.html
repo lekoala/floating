@@ -199,6 +199,7 @@
     }
 
     .panel table {
+      inline-size: 100%;
       border-collapse: collapse;
       font-size: .75rem;
       font-variant-numeric: tabular-nums;
@@ -207,14 +208,23 @@
     .panel th,
     .panel td {
       text-align: end;
-      padding: .1rem .5rem;
-      min-inline-size: 5rem;
+      padding: .1rem .3rem;
+      white-space: nowrap;
     }
 
     .panel th:first-child,
     .panel td:first-child {
       text-align: start;
-      min-inline-size: 15rem;
+      inline-size: 100%;
+    }
+
+    /* The sample count is diagnostic; the drift columns are the point. */
+    @media (width < 34rem) {
+
+      .panel th:nth-child(4),
+      .panel td:nth-child(4) {
+        display: none;
+      }
     }
 
     .panel thead th {
@@ -299,8 +309,8 @@
       <thead>
         <tr>
           <th>engine</th>
-          <th>max drift</th>
-          <th>mean drift</th>
+          <th>max</th>
+          <th>mean</th>
           <th>samples</th>
         </tr>
       </thead>
@@ -549,7 +559,7 @@
           const cells = stat
             ? [`${stat.max.toFixed(1)} px`, `${(stat.sum / stat.count).toFixed(2)} px`, stat.count]
             : ["—", "—", "—"];
-          return `<tr><td><span class="swatch" style="background:${config.color}"></span>${config.label}</td>${cells
+          return `<tr><td><span class="swatch" style="background:${config.color}"></span>${config.short}</td>${cells
             .map((cell) => `<td>${cell}</td>`)
             .join("")}</tr>`;
         })
@@ -597,9 +607,34 @@
 
     /* Smooth scrolling is driven by the compositor, which is the closest thing
        to a touch scroll that a click can trigger. */
-    document.querySelector("#auto").addEventListener("click", () => runAutoScroll());
+    const auto = document.querySelector("#auto");
+    auto.addEventListener("click", async () => {
+      auto.disabled = true;
+      auto.textContent = "Scrolling…";
+      try {
+        await runAutoScroll();
+      } finally {
+        auto.disabled = false;
+        auto.textContent = "Auto scroll test";
+      }
+    });
+
+    /* Whichever row is closest to the middle of the viewport is the one the
+       reader is looking at. */
+    function nearestScenario() {
+      const middle = window.innerHeight / 2;
+      let best = null;
+      for (const row of document.querySelectorAll(".row")) {
+        const box = row.getBoundingClientRect();
+        const distance = Math.abs(box.top + box.height / 2 - middle);
+        if (!best || distance < best.distance) best = { scenario: row.dataset.scenario, distance };
+      }
+      return best?.scenario;
+    }
 
     async function runAutoScroll(distance = 200) {
+      /* Pressing the button with nothing open used to do nothing at all. */
+      if (open.size === 0) openScenario(nearestScenario());
       const [anchor] = [...open.keys()];
       if (!anchor) return;
 

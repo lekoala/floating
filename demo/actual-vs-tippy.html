@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Actual tooltip vs Tippy</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lekoala/actual-css@master/dist/actual.full.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tippy.js@6/dist/tippy.css">
+  <style>
+    /* Actual's stylesheet drives the page; this only lays the comparison out. */
+    body {
+      margin: 0;
+      padding: 1rem 1rem 11rem;
+    }
+
+    .columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      align-items: start;
+      margin-block: 1rem;
+    }
+
+    .columns > div {
+      text-align: center;
+    }
+
+    .columns button {
+      inline-size: 100%;
+    }
+
+    .filler {
+      block-size: 70vh;
+      display: grid;
+      place-items: center;
+      opacity: .45;
+      background: repeating-linear-gradient(180deg, transparent 0 39px, currentColor 39px 40px);
+      background-clip: content-box;
+    }
+
+    .scroller {
+      block-size: 240px;
+      overflow: auto;
+      overscroll-behavior: contain;
+      border: 1px dashed currentColor;
+      border-radius: .4rem;
+      padding-inline: .75rem;
+    }
+
+    .scroller .filler {
+      block-size: 320px;
+    }
+
+    .panel {
+      position: fixed;
+      inset-block-end: 0;
+      inset-inline: 0;
+      z-index: 100;
+      padding: .5rem .75rem;
+      background: Canvas;
+      border-block-start: 1px solid currentColor;
+      font-size: .8rem;
+    }
+
+    .panel table {
+      inline-size: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .panel th,
+    .panel td {
+      text-align: end;
+      padding: .1rem .3rem;
+    }
+
+    .panel th:first-child,
+    .panel td:first-child {
+      text-align: start;
+    }
+
+    .panel .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .4rem;
+      align-items: center;
+      margin-block-start: .5rem;
+    }
+
+    .panel button {
+      font-size: .8rem;
+      padding: .3rem .5rem;
+    }
+
+    .panel p {
+      margin: .4rem 0 0;
+      font-size: .7rem;
+      opacity: .7;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Actual tooltip vs Tippy</h1>
+  <p>
+    Two tooltips held open side by side, on identical buttons, with the same placement and the same
+    distance. Scroll and watch which one stays glued to its button. Actual is loaded from
+    <code>@master</code> on jsDelivr, so this page always shows the current tooltip enhancement.
+  </p>
+  <p>
+    Scroll a row into view before reading its numbers. Actual hides a tooltip whose reference is
+    outside the viewport, so the ones below the fold are not shown yet.
+  </p>
+
+  <h2>Page scroll</h2>
+  <div class="filler">scroll down</div>
+  <div class="columns" id="page-row">
+    <div>
+      <button class="btn" type="button" data-tooltip="Actual — data-tooltip" data-tooltip-visible
+        data-tooltip-placement="bottom">Actual</button>
+    </div>
+    <div>
+      <button class="btn" type="button" id="tippy-page">Tippy</button>
+    </div>
+  </div>
+  <div class="filler">keep scrolling</div>
+
+  <h2>Nested scroll container</h2>
+  <p>The reference scrolls inside the box, not with the document.</p>
+  <div class="scroller">
+    <div class="filler">scroll inside</div>
+    <div class="columns" id="inner-row">
+      <div>
+        <button class="btn" type="button" data-tooltip="Actual — data-tooltip" data-tooltip-visible
+          data-tooltip-placement="bottom">Actual</button>
+      </div>
+      <div>
+        <button class="btn" type="button" id="tippy-inner">Tippy</button>
+      </div>
+    </div>
+    <div class="filler">keep scrolling</div>
+  </div>
+  <div class="filler">end of page</div>
+
+  <div class="panel">
+    <table>
+      <thead>
+        <tr>
+          <th>tooltip</th>
+          <th>max</th>
+          <th>mean</th>
+          <th>hides</th>
+        </tr>
+      </thead>
+      <tbody id="metrics"></tbody>
+    </table>
+    <div class="actions">
+      <button type="button" id="reset">Reset</button>
+      <label><input type="checkbox" id="jank"> busy main thread</label>
+    </div>
+    <p>
+      Drift is how far the tooltip-to-button offset has moved from its offset at rest, sampled once
+      per frame after rendering, while a scroll is in flight. <em>hides</em> counts the frames where
+      the tooltip was not rendered at all.
+    </p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/gh/lekoala/actual-css@master/dist/actual.full.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2/dist/umd/popper.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tippy.js@6/dist/tippy.umd.min.js"></script>
+  <script>
+    /* Tippy, configured to match the Actual tooltip: same side, same distance. */
+    for (const id of ["tippy-page", "tippy-inner"]) {
+      const anchor = document.getElementById(id);
+      const instance = window.tippy(anchor, {
+        content: "Tippy — same placement",
+        trigger: "manual",
+        hideOnClick: false,
+        placement: "bottom",
+        offset: [0, 6],
+        animation: false,
+        duration: 0,
+        arrow: false,
+      });
+      instance.show();
+      anchor.__tip = () => instance.popper;
+    }
+
+    /* Actual creates its tooltip lazily and points at it with aria-describedby. */
+    function actualTip(anchor) {
+      const ids = (anchor.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+      for (const id of ids) {
+        const node = document.getElementById(id);
+        if (node?.getAttribute("role") === "tooltip") return node;
+      }
+      return null;
+    }
+
+    const subjects = [];
+    for (const row of ["page-row", "inner-row"]) {
+      const [actual, tippy] = document.getElementById(row).querySelectorAll("button");
+      subjects.push({ name: `Actual (${row === "page-row" ? "page" : "inner"})`, anchor: actual, tip: () => actualTip(actual) });
+      subjects.push({ name: `Tippy (${row === "page-row" ? "page" : "inner"})`, anchor: tippy, tip: tippy.__tip });
+    }
+
+    const stats = new Map();
+
+    function reset() {
+      stats.clear();
+      for (const subject of subjects) subject.base = null;
+      render();
+    }
+
+    let lastScrollAt = 0;
+    const mark = () => { lastScrollAt = performance.now(); };
+    document.addEventListener("scroll", mark, { capture: true, passive: true });
+    window.visualViewport?.addEventListener("scroll", mark, { passive: true });
+
+    function statFor(name) {
+      let stat = stats.get(name);
+      if (!stat) {
+        stat = { max: 0, sum: 0, count: 0, hides: 0 };
+        stats.set(name, stat);
+      }
+      return stat;
+    }
+
+    function sample() {
+      const scrolling = performance.now() - lastScrollAt < 200;
+
+      for (const subject of subjects) {
+        const anchor = subject.anchor.getBoundingClientRect();
+        /* An off-screen reference is not positionable; those frames say nothing
+           about tracking. */
+        if (anchor.bottom < 0 || anchor.top > window.innerHeight) continue;
+
+        const tip = subject.tip();
+        const rect = tip?.getClientRects()[0];
+        if (!rect) {
+          if (scrolling) statFor(subject.name).hides += 1;
+          continue;
+        }
+
+        const offset = { x: rect.left - anchor.left, y: rect.top - anchor.bottom };
+        if (!scrolling || !subject.base) {
+          subject.base = offset;
+          continue;
+        }
+
+        const drift = Math.hypot(offset.x - subject.base.x, offset.y - subject.base.y);
+        const stat = statFor(subject.name);
+        stat.max = Math.max(stat.max, drift);
+        stat.sum += drift;
+        stat.count += 1;
+      }
+    }
+
+    const metrics = document.getElementById("metrics");
+
+    function render() {
+      metrics.innerHTML = subjects
+        .map((subject) => {
+          const stat = stats.get(subject.name);
+          const cells = stat
+            ? [
+                `${stat.max.toFixed(1)} px`,
+                stat.count ? `${(stat.sum / stat.count).toFixed(2)} px` : "—",
+                stat.hides,
+              ]
+            : ["—", "—", "—"];
+          return `<tr><td>${subject.name}</td>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+        })
+        .join("");
+    }
+
+    /* Sample in a task posted from rAF, so it observes the frame that was just
+       rendered rather than racing the tooltip inside the same frame. */
+    const channel = new MessageChannel();
+    let frames = 0;
+    channel.port1.onmessage = () => {
+      sample();
+      if (frames++ % 6 === 0) render();
+      requestAnimationFrame(() => channel.port2.postMessage(0));
+    };
+    requestAnimationFrame(() => channel.port2.postMessage(0));
+    render();
+
+    document.getElementById("reset").addEventListener("click", reset);
+
+    /* Latency only becomes visible drift when the main thread is behind. */
+    const jank = document.getElementById("jank");
+    let burnMs = 0;
+
+    function burn() {
+      if (!burnMs) return;
+      const until = performance.now() + burnMs;
+      while (performance.now() < until) { /* busy */ }
+      requestAnimationFrame(burn);
+    }
+
+    jank.addEventListener("change", () => {
+      const running = burnMs > 0;
+      burnMs = jank.checked ? 40 : 0;
+      if (burnMs && !running) requestAnimationFrame(burn);
+    });
+
+    window.demo = { subjects, stats, reset, sample };
+  </script>
+</body>
+
+</html>
