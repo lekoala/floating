@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0
+
 - Add `coordinateSpace: "viewport" | "document"` to `reposition()` and `repositionAt()`.
   `"document"` adds the page scroll to the written `left`/`top`, for an absolutely
   positioned surface whose containing block is the initial one, such as a top-layer
@@ -22,7 +24,7 @@
   pinned to the resolved placement.
 - Add real-browser coverage (`test/browser.test.js`), a popover demo, and
   expanded unit tests; refresh `README.md` and demos.
-  
+
 ## 0.1.0
 
 - Initial standalone package.
