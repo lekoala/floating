@@ -124,6 +124,18 @@ reposition(anchor, tooltip, { placement: "top", distance: 6, coordinateSpace: "d
 `autoUpdate()` is still required: flip, shift, and the available height are
 re-evaluated on scroll whatever the space.
 
+Which space suits a surface is the consumer's call. It cannot be derived from the
+reference's ancestry: a `fixed` element under a `transform`ed ancestor scrolls
+with the page, `sticky` is relative to its scrollport rather than the viewport,
+the top layer decouples the layout chain from the DOM chain, and a closed shadow
+root hides part of the flattened tree without saying so. Keep the default
+`"viewport"` and opt into `"document"` for a layout you know.
+
+[docs/coordinate-space.md](docs/coordinate-space.md) is the contract for
+components built on this package: the two recipes, the four measured failures of
+an automatic resolver, and what a component should expose instead. Point at it
+rather than restating it.
+
 ### Sizing and arrows
 
 The engine also writes three CSS properties:

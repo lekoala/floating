@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Add `docs/coordinate-space.md`, the coordinate space contract for components
+  built on this package: the two explicit strategies and their `position`
+  pairing, when `"document"` is valid, what a reusable component should expose,
+  and a short table its own documentation can carry instead of a copy. Consumers
+  should link to it rather than restate it.
+- Document why no automatic resolver ships, with the four configurations where
+  deriving the space from the reference's ancestry was measured wrong in Chrome:
+  `fixed` under a `transform`ed ancestor, `sticky` in a scroller that rides the
+  page, a reference in an `absolute` top-layer popover under a `fixed` DOM
+  ancestor, and a reference slotted into a closed shadow root, where the walk
+  cannot even detect what it is missing.
+- Correct two over-strong claims in the coordinate space guidance. A reference
+  inside a modal dialog or an open popover is not intrinsically viewport-anchored:
+  UA styles make those boxes `fixed`, but an author can set `position: absolute`,
+  and in the top layer that resolves against the initial containing block, so the
+  box and everything in it ride the page. And an ordinary nested scroller is no
+  reason to prefer `"viewport"`: its inner scroll is `autoUpdate()` work in either
+  space, while the page scroll is free in `"document"`.
+- Ship `docs/` in the published package, so those links resolve from an install.
+- No API change: `reposition()` and `repositionAt()` still take
+  `"viewport" | "document"` and inspect nothing.
+
 ## 0.2.0
 
 - Add `coordinateSpace: "viewport" | "document"` to `reposition()` and `repositionAt()`.

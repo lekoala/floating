@@ -27,6 +27,7 @@
   "files": [
     "src",
     "types",
+    "docs",
     "README.md",
     "CHANGELOG.md",
     "MIGRATION.md",

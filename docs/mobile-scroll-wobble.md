@@ -194,45 +194,24 @@ Behavior (`README.md:81-126`, `CHANGELOG.md:5-13`):
 - `autoUpdate()` is still required: flip, shift, and available height are
   re-evaluated on scroll in either space.
 
-## When to use which space
+## Which space to use
 
-| Reference                          | Recommended space         | Reason                                   |
-|------------------------------------|---------------------------|------------------------------------------|
-| Moves with the document            | `document` / `absolute`   | Stays attached with no JS correction     |
-| Inside a nested scroll container   | `viewport` / `fixed` + JS | That scroll is still `autoUpdate()` work |
-| `fixed`, or `sticky` while stuck   | `viewport` / `fixed`      | A document-space surface scrolls away    |
-| Reference inside a modal dialog, open popover, or otherwise viewport-anchored | `viewport` / `fixed` | The reference itself follows the viewport |
-| `clientX`/`clientY` context menu   | `viewport` / `fixed`      | Plus dismiss-on-scroll; no tracking need |
+That decision is the consumer's, and it is not derivable from the reference's
+ancestry. The contract, the two recipes, and the four configurations where an
+automatic resolver was measured wrong all live in
+[coordinate-space.md](coordinate-space.md), which is the document to point
+components at.
 
-The model is therefore:
-
-```text
-reference document
-→ document / absolute
-→ no wobble on page scroll
-
-reference fixed / sticky / inside modal / inside open popover
-→ viewport / fixed
-→ same frame as the reference
-
-nested scroller
-→ JS must still follow
-→ acknowledged limitation
-
-context-menu clientX/Y
-→ viewport / fixed + dismissOnScroll
-→ no need to follow
-```
-
-Here, “inside an open popover” describes the **reference** being viewport-anchored.
-It does not conflict with the favorable case above where the **floating surface**
-itself is a top-layer popover using `position: absolute` and document coordinates.
+The part that belongs here is only the motivation: document space exists because
+a reference carried by the page scroll and a surface carried by the same scroll
+never drift apart, while a fixed surface waits for JavaScript. Everything else
+about choosing between the two is guidance, not a property of this investigation.
 
 ## Limits
 
 - Nested scrollers are unchanged: if the reference moves inside a container
   that the floating element does not belong to, only JS tracking can follow.
-- `fixed` and stuck-`sticky` references get worse in document space: the
+- A reference that stays put in the viewport gets worse in document space: the
   surface scrolls away until the next update.
 - Positioned ancestors break the ICB assumption; this engine does not resolve
   or offset them.

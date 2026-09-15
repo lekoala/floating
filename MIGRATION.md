@@ -49,6 +49,30 @@ function update() {
 }
 ```
 
+## Coordinate space
+
+`coordinateSpace` defaults to `"viewport"`, which is the pre-0.2 behavior and
+needs no migration. Treat `"document"` as an opt-in for surfaces whose layout you
+know:
+
+```js
+reposition(anchor, panel, { coordinateSpace: this.coordinateSpace ?? "viewport" });
+```
+
+with `panel.style.position` set to `absolute` for `"document"` and `fixed` for
+`"viewport"`, since the two form one contract.
+
+Resist auto-detecting the space from the reference's ancestry. That heuristic
+fails on a `fixed` element under a `transform`ed ancestor, on `sticky` relative
+to a moving scrollport, on a top-layer box whose layout chain has left the DOM
+chain, and silently on a closed shadow root. A reusable component exposes the
+choice to the application instead, which keeps the escape hatch where the
+knowledge is.
+
+[docs/coordinate-space.md](docs/coordinate-space.md) holds the full contract,
+including the measurements behind that rule and the recipe a component should
+follow.
+
 ## Lifecycle
 
 Start tracking only while the surface is open and always call the cleanup function

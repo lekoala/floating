@@ -9,6 +9,17 @@ Do not add component behavior such as dismissal, focus management, Popover API
 wiring, sheets, backdrops, animations, or framework adapters unless the public scope
 is explicitly reconsidered first.
 
+The line that keeps this workable: the package answers how to write coordinates in
+a given space, never which space an application's layout needs. Deriving that from
+the reference is a heuristic the platform cannot support, and it was measured wrong
+in four configurations. If a change starts needing containing-block resolution,
+scrollport resolution, a top-layer test, or `:popover-open` / `closest("dialog")` /
+`offsetParent`, it belongs in the consumer.
+
+`docs/coordinate-space.md` is the normative version of that rule and the document
+consumers are pointed at. Keep it in sync with any change to `coordinateSpace`,
+and keep the guidance there rather than duplicating it into consumers.
+
 ## Language and compatibility
 
 - Code, comments, documentation, tests, and commit messages are written in English.
