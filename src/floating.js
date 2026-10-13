@@ -24,7 +24,6 @@
  * @typedef {Object} VirtualReference
  * @property {Document} ownerDocument
  * @property {string | undefined} [dir]
- * @property {((selector: string) => boolean) | undefined} [matches]
  * @property {() => ArrayLike<DOMRect>} getClientRects
  */
 
@@ -48,15 +47,16 @@ function crossAxisFor(side) {
   return side === "top" || side === "bottom" ? "x" : "y";
 }
 
+const OPPOSITE = { top: "bottom", bottom: "top", left: "right", right: "left" };
+const PLACEMENTS = new Set(
+  Object.keys(OPPOSITE).flatMap((side) => [side, `${side}-start`, `${side}-end`]),
+);
+
 /** @param {string} placement */
 function parsePlacement(placement) {
+  if (!PLACEMENTS.has(placement)) throw new TypeError(`Unknown placement: ${placement}`);
   const [side, align = null] = placement.split("-");
   return { side, align, crossAxis: crossAxisFor(side) };
-}
-
-/** @param {string} side */
-function flipSide(side) {
-  return { top: "bottom", bottom: "top", left: "right", right: "left" }[side] || side;
 }
 
 function computeCoords(reference, floating, side, align, rtl, distance) {
@@ -99,23 +99,16 @@ function overflowOn(position, size, start, end) {
   return Math.max(start - position, 0) + Math.max(position + size - end, 0);
 }
 
-/* Resolve inherited direction and dir="auto" from the rendered tree. */
-/** @param {PositionReference} element */
-function isRTL(element) {
-  const direction = "dir" in element ? element.dir : "";
-  if (direction === "rtl") return true;
-  if (direction === "ltr") return false;
-
-  const win = element.ownerDocument?.defaultView;
-  if (win?.CSS?.supports?.("selector(:dir(rtl))") && typeof element.matches === "function") {
-    return element.matches(":dir(rtl)");
+/* Computed direction covers `dir` attributes, `dir="auto"`, and CSS `direction`.
+ * Callers read it after checkVisibility() has already flushed style, so it adds
+ * no recalculation. Virtual references carry `dir`. */
+/** @param {PositionReference} reference */
+function isRTL(reference) {
+  const win = reference.ownerDocument?.defaultView;
+  if (win && reference instanceof win.Element) {
+    return win.getComputedStyle(reference).direction === "rtl";
   }
-
-  return Boolean(
-    win?.Element &&
-      element instanceof win.Element &&
-      win.getComputedStyle(element).direction === "rtl",
-  );
+  return "dir" in reference && reference.dir === "rtl";
 }
 
 /* Upper bound for the reserved-gutter heuristic. */
@@ -356,21 +349,23 @@ export function autoUpdate(reference, floating, callback) {
  * @returns {{ width: number, height: number, roomChanged: boolean, placement: Placement } | null} Measured size and resolved placement, or null.
  */
 function positionOnce(reference, floating, options) {
+  const placement = /** @type {Placement} */ (options.placement || "bottom-start");
+  let { side, align, crossAxis } = parsePlacement(placement);
   if (!isVisible(floating)) return null;
 
-  const placement = /** @type {Placement} */ (options.placement || "bottom-start");
   const distance = options.distance || 0;
   const flip = options.flip !== false;
   const shift = options.shift !== false;
   const shiftPadding = options.shiftPadding ?? 4;
 
-  let { side, align, crossAxis } = parsePlacement(placement);
   /* Centered placements do not need direction. */
   const rtl = align ? isRTL(reference) : false;
 
   const rects = reference.getClientRects();
-  const referenceRect = side === "bottom" ? rects[rects.length - 1] : rects[0];
-  if (!referenceRect) return null;
+  if (!rects.length) return null;
+  /* Each side anchors to its own line rect: bottom to the last, the rest to the first. */
+  const rectFor = (s) => (s === "bottom" ? rects[rects.length - 1] : rects[0]);
+  const referenceRect = rectFor(side);
 
   const boundary = getBoundary(reference, options);
   if (!boundary || isOutsideBoundary(referenceRect, boundary)) return null;
@@ -382,7 +377,7 @@ function positionOnce(reference, floating, options) {
     y: { size: floatingRect.height, start: boundary.y, end: boundary.bottom },
   };
   const place = (nextSide, nextAlign) =>
-    computeCoords(referenceRect, floatingRect, nextSide, nextAlign, rtl, distance);
+    computeCoords(rectFor(nextSide), floatingRect, nextSide, nextAlign, rtl, distance);
   const overflowAt = (position, axis) => {
     const { size, start, end } = limits[axis];
     return overflowOn(position, size, start + shiftPadding, end - shiftPadding);
@@ -398,38 +393,32 @@ function positionOnce(reference, floating, options) {
 
   let coords = place(side, align);
 
+  /* Overflow left on the main axis, and in total once the cross axis is shifted. */
+  const overflowFor = (nextSide, at) => {
+    const cross = crossAxisFor(nextSide);
+    const main = cross === "x" ? "y" : "x";
+    const mainOverflow = overflowAt(at[main], main);
+    return { main: mainOverflow, total: mainOverflow + shiftedOverflowAt(at[cross], cross) };
+  };
+
   if (flip) {
-    const mainAxis = crossAxis === "x" ? "y" : "x";
-    let overflow = overflowAt(coords[mainAxis], mainAxis);
-
-    /* Opposite sides share cross-axis coordinates; compare the main axis. */
-    if (overflow > 0) {
-      const opposite = flipSide(side);
-      const flipped = place(opposite, align);
-      const flippedOverflow = overflowAt(flipped[mainAxis], mainAxis);
-
-      if (flippedOverflow < overflow) {
-        side = opposite;
-        coords = flipped;
-        overflow = flippedOverflow;
+    let best = overflowFor(side, coords);
+    /* Ties keep the earlier candidate, so the preferred side wins them. */
+    const consider = (nextSide) => {
+      const next = place(nextSide, align);
+      const overflow = overflowFor(nextSide, next);
+      if (overflow.total < best.total) {
+        side = nextSide;
+        coords = next;
+        best = overflow;
       }
+    };
+    if (best.main > 0) consider(OPPOSITE[side]);
+    if (crossAxis === "y" && best.main > 0) {
+      consider("top");
+      consider("bottom");
     }
-
-    /* Compare both axes after shifting before switching to top/bottom. */
-    if (mainAxis === "x" && overflow > 0) {
-      const above = place("top", align);
-      const below = place("bottom", align);
-      // Top and bottom share their x, so only y separates the two.
-      const useBottom = overflowAt(below.y, "y") < overflowAt(above.y, "y");
-      const candidate = useBottom ? below : above;
-      const swapped = overflowAt(candidate.y, "y") + shiftedOverflowAt(candidate.x, "x");
-
-      if (swapped < overflow + shiftedOverflowAt(coords.y, "y")) {
-        side = useBottom ? "bottom" : "top";
-        crossAxis = "x";
-        coords = candidate;
-      }
-    }
+    crossAxis = crossAxisFor(side);
   }
 
   if (crossAxis === "x" && shift && align) {
@@ -452,18 +441,19 @@ function positionOnce(reference, floating, options) {
     coords[crossAxis] = clampToBoundary(coords[crossAxis], size, start, end, shiftPadding);
   }
 
+  const resolvedRect = rectFor(side);
   const arrowX = arrowPercent(
-    referenceRect.x + referenceRect.width / 2,
+    resolvedRect.x + resolvedRect.width / 2,
     coords.x,
     floatingRect.width,
   );
   const arrowY = arrowPercent(
-    referenceRect.y + referenceRect.height / 2,
+    resolvedRect.y + resolvedRect.height / 2,
     coords.y,
     floatingRect.height,
   );
 
-  const availableHeight = `${getAvailableHeight(referenceRect, side, boundary, distance, shiftPadding)}px`;
+  const availableHeight = `${getAvailableHeight(resolvedRect, side, boundary, distance, shiftPadding)}px`;
   const { style } = floating;
   /* Reading the inline value does not trigger layout. */
   const roomChanged = style.getPropertyValue("--available-height") !== availableHeight;
@@ -544,12 +534,11 @@ export function repositionAt(x, y, floating, options = {}) {
   const win = doc.defaultView;
   if (!win) return false;
 
-  const direction = doc.dir || docEl?.dir || win.getComputedStyle?.(docEl).direction || "";
+  const direction = docEl ? win.getComputedStyle(docEl).direction : "";
   const point = new win.DOMRect(x, y, 0, 0);
   const reference = {
     ownerDocument: doc,
     dir: direction,
-    matches: (selector) => selector === ":dir(rtl)" && direction === "rtl",
     getClientRects: () => [point],
   };
 

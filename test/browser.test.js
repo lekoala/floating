@@ -4,7 +4,7 @@
  * The happy-dom suite proves the arithmetic against synthetic rects. These
  * cases prove what only a real engine can answer: the top layer and the popover
  * UA styles, `--available-height` actually constraining a box, layout size
- * versus a painted transform, `:dir(rtl)`, and tracking a real scroll. They are
+ * versus a painted transform, computed `direction`, and tracking a real scroll. They are
  * skipped when no Chrome is available.
  */
 
@@ -293,6 +293,32 @@ browserTest(
     expect(result.supported).toBe(true);
     expect(result.matches).toBe(true);
     // `start` is the right edge in RTL, so both right edges line up.
+    expect(result.rightDelta).toBeCloseTo(0, 1);
+  },
+  20000,
+);
+
+browserTest(
+  "start alignment follows CSS direction, not only :dir(rtl)",
+  async () => {
+    const result = await run(`
+      const wrapper = el("div", "position:absolute; left:300px; top:120px; direction:rtl");
+      const anchor = el("button", "display:block; width:100px; height:30px; margin:0", wrapper);
+      const panel = el("div", "position:fixed; inset:auto; margin:0; width:200px; height:60px");
+
+      reposition(anchor, panel, { placement: "bottom-start" });
+      const a = anchor.getBoundingClientRect();
+      const p = panel.getBoundingClientRect();
+      return {
+        direction: getComputedStyle(anchor).direction,
+        matches: anchor.matches(":dir(rtl)"),
+        rightDelta: p.right - a.right,
+      };
+    `);
+
+    expect(result.direction).toBe("rtl");
+    // No dir attribute: :dir(rtl) stays false, yet `start` must still be the right edge.
+    expect(result.matches).toBe(false);
     expect(result.rightDelta).toBeCloseTo(0, 1);
   },
   20000,

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Fix: a multiline inline reference that flips from `bottom` to `top` now anchors
+  to its first line instead of covering it from the last one. The arrow and
+  `--available-height` follow the resolved side's line as well.
+- Fix: `start`/`end` alignment follows the reference's computed `direction`, so a
+  CSS `direction: rtl` without a `dir` attribute counts, matching `repositionAt()`.
+  `VirtualReference.matches` is removed; virtual references set `dir` to `"rtl"`
+  or `"ltr"`, and `"auto"` is no longer resolved for them.
+- `reposition()` and `repositionAt()` throw a `TypeError` for an unknown placement
+  instead of silently writing the reference origin.
+- `exports` uses the `default` condition, so `require("@lekoala/floating")` works on
+  Node versions with `require(esm)`.
+- Side selection is one candidate comparison of overflow after shifting; behavior
+  is unchanged for single-rect references.
 - Add `docs/coordinate-space.md`, the coordinate space contract for components
   built on this package: the two explicit strategies and their `position`
   pairing, when `"document"` is valid, what a reusable component should expose,

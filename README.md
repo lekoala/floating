@@ -63,7 +63,8 @@ has no browsing context. Otherwise returns `true`.
 | `coordinateSpace` | `"viewport"`     | Space the written `left`/`top` use. `"document"` adds the page scroll. |
 
 Physical `left`/`right` stay physical in RTL. Horizontal `start`/`end` alignment
-follows the reference direction.
+follows the reference's computed `direction`, so `dir` attributes, `dir="auto"`,
+and a CSS `direction` all count. A virtual reference supplies `dir` itself.
 
 If neither lateral side fits, the engine tries top/bottom and switches only if
 that reduces overflow after shifting. Ties keep the current side.

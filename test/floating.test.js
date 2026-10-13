@@ -350,6 +350,60 @@ test("reposition uses the outer line rect for a multiline reference", async () =
   assert.equal(float.style.top, "140px");
 });
 
+test("a multiline reference flipped to top anchors to its first line", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<a id="ref"></a><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 80, height: 30 });
+
+  const firstLine = {
+    x: 100,
+    y: 700,
+    width: 200,
+    height: 20,
+    left: 100,
+    top: 700,
+    right: 300,
+    bottom: 720,
+  };
+  const lastLine = {
+    x: 50,
+    y: 720,
+    width: 150,
+    height: 20,
+    left: 50,
+    top: 720,
+    right: 200,
+    bottom: 740,
+  };
+  ref.getClientRects = () => [firstLine, lastLine];
+
+  /* No room below the last line, so the box flips above the FIRST line. */
+  reposition(ref, float, { placement: "bottom" });
+  assert.equal(float.dataset.placement, "top");
+  assert.equal(float.style.top, "670px");
+});
+
+test("reposition rejects an unknown placement", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 100, width: 80, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 40, height: 30 });
+
+  assert.throws(() => reposition(ref, float, { placement: "auto" }), TypeError);
+  assert.throws(() => reposition(ref, float, { placement: "bottom-middle" }), TypeError);
+  assert.equal(float.style.left, "");
+  assert.equal(float.dataset.placement, undefined);
+  /* Validation does not depend on the floating element being measurable. */
+  float.hidden = true;
+  assert.throws(() => reposition(ref, float, { placement: "auto" }), TypeError);
+});
+
 test("reposition settles a size its own --available-height drives", async () => {
   const { reposition } = await api();
   setViewport();
@@ -469,6 +523,9 @@ test("start alignment follows RTL", async () => {
   setViewport();
   document.body.innerHTML = '<button id="ref" dir="rtl"></button><div id="float"></div>';
   const ref = document.getElementById("ref");
+  /* happy-dom does not compute `direction`; a real engine resolves dir="rtl". */
+  window.getComputedStyle = (element) =>
+    element === ref ? { direction: "rtl" } : nativeGetComputedStyle(element);
   const float = document.getElementById("float");
   mockRect(ref, { x: 100, y: 100, width: 80, height: 20 });
   mockRect(float, { x: 0, y: 0, width: 40, height: 30 });
@@ -865,6 +922,9 @@ test("repositionAt follows document direction for start alignment", async () => 
   repositionAt(200, 160, float, { placement: "bottom-start" });
   assert.equal(float.style.left, "200px");
 
+  /* happy-dom does not compute `direction`; a real engine resolves dir="rtl". */
+  window.getComputedStyle = (element) =>
+    element === document.documentElement ? { direction: "rtl" } : nativeGetComputedStyle(element);
   document.documentElement.dir = "rtl";
   repositionAt(200, 160, float, { placement: "bottom-start" });
   assert.equal(float.style.left, "100px");
@@ -1081,6 +1141,9 @@ test("the arrow points at the reference on an RTL aligned placement", async () =
   setViewport();
   document.body.innerHTML = '<button id="ref" dir="rtl"></button><div id="float"></div>';
   const ref = document.getElementById("ref");
+  /* happy-dom does not compute `direction`; a real engine resolves dir="rtl". */
+  window.getComputedStyle = (element) =>
+    element === ref ? { direction: "rtl" } : nativeGetComputedStyle(element);
   const float = document.getElementById("float");
   mockRect(ref, { x: 600, y: 100, width: 100, height: 20 });
   mockRect(float, { x: 0, y: 0, width: 300, height: 60 });
@@ -1118,7 +1181,7 @@ test("autoUpdate coalesces the window and visual viewport resize into one call",
   otherWindow.close();
 });
 
-test('dir="auto" is resolved against the tree, not treated as ltr', async () => {
+test("virtual references follow their dir property", async () => {
   const { reposition } = await api();
   setViewport();
   document.body.innerHTML = '<div id="float"></div>';
@@ -1137,16 +1200,15 @@ test('dir="auto" is resolved against the tree, not treated as ltr', async () => 
   };
   const reference = {
     ownerDocument: document,
-    dir: "auto",
-    matches: (selector) => selector === ":dir(rtl)",
+    dir: "rtl",
     getClientRects: () => [rect],
   };
 
-  // `auto` settles nothing on its own: the `:dir(rtl)` match has to decide.
+  // No element exists to compute a style from, so `dir` has to decide.
   reposition(reference, float, { placement: "bottom-start" });
   assert.equal(float.style.left, "100px");
 
-  reference.matches = () => false;
+  reference.dir = "ltr";
   reposition(reference, float, { placement: "bottom-start" });
   assert.equal(float.style.left, "200px");
 });

@@ -20,7 +20,7 @@
   "exports": {
     ".": {
       "types": "./types/floating.d.ts",
-      "import": "./src/floating.js"
+      "default": "./src/floating.js"
     },
     "./package.json": "./package.json"
   },

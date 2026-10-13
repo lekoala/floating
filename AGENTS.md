@@ -77,6 +77,6 @@ Any geometry change must cover the relevant edge cases:
 Geometry that depends on a real engine belongs in `test/browser.test.js`, which drives
 headless Chrome through `Bun.WebView` and skips itself when no browser is available:
 the top layer and popover UA styles, `--available-height` constraining a real box,
-layout size versus a painted transform, `:dir(rtl)`, and tracking a real scroll.
+layout size versus a painted transform, computed `direction`, and tracking a real scroll.
 
 Run `npm run check` before publishing.
