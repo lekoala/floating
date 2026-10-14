@@ -50,7 +50,7 @@
     "test:browser": "bun test test/browser.test.js"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.12",
+    "@biomejs/biome": "^2.5.15",
     "happy-dom": "^20.14",
     "typescript": "^7.0.0"
   },
