@@ -14,9 +14,9 @@ There are exactly two strategies, both explicit. **The package provides no
 automatic resolver, and consumers should not build one**; the reasoning is
 measured below.
 
-| Space        | Panel                | Role                                                    |
-|--------------|----------------------|---------------------------------------------------------|
-| `"viewport"` | `position: fixed`    | The robust baseline. Default.                           |
+| Space        | Panel                | Role                                                     |
+|--------------|----------------------|----------------------------------------------------------|
+| `"viewport"` | `position: fixed`    | The robust baseline. Default.                            |
 | `"document"` | `position: absolute` | A scroll optimization, valid only under known conditions |
 
 The space and the CSS `position` form a single contract. The engine writes
@@ -79,12 +79,12 @@ the first computed `fixed` or `sticky`, `document` otherwise. It was prototyped
 against this package and measured in Chrome. The page was scrolled by 400px and
 the reference's client rect read before and after:
 
-| Configuration | Reference moved | Heuristic says | Truth |
-|---|---|---|---|
-| `position: fixed` under a `transform`ed ancestor | 400px | `viewport` | `document` |
-| `position: sticky` in a scroller that itself rides the page | 400px | `viewport` | `document` |
-| Reference in an `absolute` top-layer popover whose DOM ancestor is `fixed` | 400px | `viewport` | `document` |
-| Reference slotted into a **closed** shadow root under a `fixed` wrapper | 0px | `document` | `viewport` |
+| Configuration                                                              | Reference moved | Heuristic says | Truth      |
+|----------------------------------------------------------------------------|-----------------|----------------|------------|
+| `position: fixed` under a `transform`ed ancestor                           | 400px           | `viewport`     | `document` |
+| `position: sticky` in a scroller that itself rides the page                | 400px           | `viewport`     | `document` |
+| Reference in an `absolute` top-layer popover whose DOM ancestor is `fixed` | 400px           | `viewport`     | `document` |
+| Reference slotted into a **closed** shadow root under a `fixed` wrapper    | 0px             | `document`     | `viewport` |
 
 The causes are structural, not a matter of walking further:
 
@@ -157,10 +157,15 @@ viewport space.
 
 A component's own documentation needs no more than this, plus a link back here:
 
-| Value                    | Panel                | Use when                                                                    |
-|--------------------------|----------------------|-----------------------------------------------------------------------------|
-| `"viewport"` *(default)* | `position: fixed`    | General integration                                                         |
-| `"document"`             | `position: absolute` | The reference is known to ride the page scroll, and the panel resolves against the initial containing block |
+| Value                    | Panel                | Use when                   |
+|--------------------------|----------------------|----------------------------|
+| `"viewport"` *(default)* | `position: fixed`    | General integration        |
+| `"document"`             | `position: absolute` | Both conditions below hold |
+
+`"document"` needs both, known from the layout rather than inferred:
+
+- the reference rides the page scroll;
+- the panel resolves against the initial containing block.
 
 For a native popover panel, also reset the UA centering styles:
 
