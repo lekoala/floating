@@ -9,8 +9,16 @@
   CSS `direction: rtl` without a `dir` attribute counts, matching `repositionAt()`.
   `VirtualReference.matches` is removed; virtual references set `dir` to `"rtl"`
   or `"ltr"`, and `"auto"` is no longer resolved for them.
-- `reposition()` and `repositionAt()` throw a `TypeError` for an unknown placement
-  instead of silently writing the reference origin.
+- `reposition()` and `repositionAt()` throw a `TypeError`, before writing anything,
+  for an unknown `placement` or `coordinateSpace`, instead of silently writing the
+  reference origin or falling back to `"viewport"`. Only an absent or `undefined`
+  option takes the default; an empty string throws.
+- Fix: a multiline reference is outside the boundary only when every line is, so a
+  side can flip to a line that is still visible instead of `reposition()` returning
+  `false` when the preferred side's line is outside.
+- Fix: an `autoUpdate()` callback that throws is reported through `reportError()`
+  and no longer prevents later subscriptions from being called in that frame.
+- Document that ResizeObserver does not report non-replaced inline references.
 - `exports` uses the `default` condition, so `require("@lekoala/floating")` works on
   Node versions with `require(esm)`.
 - Side selection is one candidate comparison of overflow after shifting; behavior

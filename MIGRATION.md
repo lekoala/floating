@@ -4,6 +4,74 @@ This package is intentionally a geometry/update-tracking primitive. Existing
 components should keep their own surface lifecycle and replace only their local
 positioning engine.
 
+## Upgrading from 0.2 to 0.3
+
+0.3 contains breaking changes. A `^0.2.0` range does not pick it up; widen it to
+`^0.3.0` once the points below are handled.
+
+### Unknown options throw
+
+`reposition()` and `repositionAt()` throw a `TypeError`, before writing anything,
+for a `placement` outside `Placement` or a `coordinateSpace` other than
+`"viewport"` and `"document"`. Before, an unknown placement silently wrote the
+reference origin, and an unknown space silently meant `"viewport"`. Only an absent
+or `undefined` option takes the default: `placement: ""` and `coordinateSpace: ""`
+throw too. TypeScript callers are already covered by the types. Placements read at runtime, such as a data
+attribute written by an author, must be validated where they are read, once,
+rather than caught inside the `autoUpdate()` callback, where the error would
+come back on every tracked frame:
+
+```js
+const PLACEMENTS = new Set(
+  ["top", "right", "bottom", "left"].flatMap((side) => [side, `${side}-start`, `${side}-end`]),
+);
+
+function readPlacement(element, fallback = "bottom-start") {
+  const value = element.dataset.placement;
+  if (value === undefined || PLACEMENTS.has(value)) return value ?? fallback;
+  console.warn(`Unknown placement "${value}", using "${fallback}"`, element);
+  return fallback;
+}
+```
+
+### Virtual references: `matches` is removed
+
+`VirtualReference.matches` is no longer read. Direction comes from `dir` alone,
+which must be `"rtl"` or `"ltr"`: `"auto"` is no longer resolved for a virtual
+reference. Resolve it yourself, for instance from the computed `direction` of the
+element the virtual reference stands for:
+
+```js
+const reference = {
+  ownerDocument: doc,
+  dir: getComputedStyle(host).direction,
+  getClientRects: () => [rect],
+};
+```
+
+`repositionAt()` builds its own virtual reference and needs no change.
+
+### `autoUpdate()` callbacks are isolated
+
+A callback that throws is reported through `reportError()` and no longer prevents
+the subscriptions after it from being called in the same frame. Code that relied
+on the exception propagating out of the animation frame should catch it inside
+its own callback.
+
+### Behavior changes without code changes
+
+- `start`/`end` alignment follows the reference's computed `direction`. A CSS
+  `direction: rtl` without a `dir` attribute now mirrors the alignment; before, it
+  could be ignored when `:dir()` was supported.
+- A reference spanning several lines that flips from `bottom` to `top` anchors to
+  its first line instead of covering it from the last one. The arrow and
+  `--available-height` follow the resolved line.
+- Such a reference is outside the boundary only when every line is. A link whose
+  last line is below the viewport now gets a surface above its first line, where
+  `reposition()` returned `false` before.
+- `exports` uses the `default` condition, so `require("@lekoala/floating")` works
+  on Node versions with `require(esm)`.
+
 ## Anchored surface
 
 Before (single-element tracker):

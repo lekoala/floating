@@ -51,6 +51,7 @@ const OPPOSITE = { top: "bottom", bottom: "top", left: "right", right: "left" };
 const PLACEMENTS = new Set(
   Object.keys(OPPOSITE).flatMap((side) => [side, `${side}-start`, `${side}-end`]),
 );
+const COORDINATE_SPACES = new Set(["viewport", "document"]);
 
 /** @param {string} placement */
 function parsePlacement(placement) {
@@ -163,13 +164,21 @@ function arrowPercent(referenceCenter, boxStart, size) {
   return Math.round(Math.min(100, Math.max(0, percent)) * 1000) / 1000;
 }
 
-function isOutsideBoundary(rect, boundary) {
-  return (
-    rect.right < boundary.x ||
-    rect.left > boundary.right ||
-    rect.bottom < boundary.y ||
-    rect.top > boundary.bottom
-  );
+/* A multiline reference is outside only when every line is: a side may flip to
+ * a line that is still visible. */
+function isOutsideBoundary(rects, boundary) {
+  for (let i = 0; i < rects.length; i++) {
+    const rect = rects[i];
+    if (
+      rect.right >= boundary.x &&
+      rect.left <= boundary.right &&
+      rect.bottom >= boundary.y &&
+      rect.top <= boundary.bottom
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function getAvailableHeight(referenceRect, side, boundary, distance, padding) {
@@ -234,9 +243,23 @@ function createTracker(doc) {
 
       for (const [subscription, type] of notifications) {
         if (!subscriptions.has(subscription) || !subscription.floating.isConnected) continue;
-        subscription.callback({ type });
+        /* One failing callback must not starve the subscriptions after it. */
+        try {
+          subscription.callback({ type });
+        } catch (error) {
+          reportError(error);
+        }
       }
     });
+  }
+
+  /* Surface the error like an uncaught one without unwinding the flush. */
+  function reportError(error) {
+    if (typeof win.reportError === "function") win.reportError(error);
+    else
+      win.setTimeout(() => {
+        throw error;
+      });
   }
 
   function notifyAll(type) {
@@ -349,8 +372,14 @@ export function autoUpdate(reference, floating, callback) {
  * @returns {{ width: number, height: number, roomChanged: boolean, placement: Placement } | null} Measured size and resolved placement, or null.
  */
 function positionOnce(reference, floating, options) {
-  const placement = /** @type {Placement} */ (options.placement || "bottom-start");
+  /* Only an absent option takes the default; any other value is validated. */
+  const placement = options.placement === undefined ? "bottom-start" : options.placement;
   let { side, align, crossAxis } = parsePlacement(placement);
+  const coordinateSpace =
+    options.coordinateSpace === undefined ? "viewport" : options.coordinateSpace;
+  if (!COORDINATE_SPACES.has(coordinateSpace)) {
+    throw new TypeError(`Unknown coordinateSpace: ${coordinateSpace}`);
+  }
   if (!isVisible(floating)) return null;
 
   const distance = options.distance || 0;
@@ -365,10 +394,9 @@ function positionOnce(reference, floating, options) {
   if (!rects.length) return null;
   /* Each side anchors to its own line rect: bottom to the last, the rest to the first. */
   const rectFor = (s) => (s === "bottom" ? rects[rects.length - 1] : rects[0]);
-  const referenceRect = rectFor(side);
 
   const boundary = getBoundary(reference, options);
-  if (!boundary || isOutsideBoundary(referenceRect, boundary)) return null;
+  if (!boundary || isOutsideBoundary(rects, boundary)) return null;
 
   const floatingRect = getFloatingSize(floating);
   /* Compare with padding; clamping may drop it to fit the boundary. */
@@ -461,7 +489,7 @@ function positionOnce(reference, floating, options) {
   /* Everything above is viewport space; only the write may leave it. Document
    * coordinates are the viewport ones plus the page scroll, which holds when the
    * containing block is the initial one. */
-  const win = options.coordinateSpace === "document" ? reference.ownerDocument.defaultView : null;
+  const win = coordinateSpace === "document" ? reference.ownerDocument.defaultView : null;
   const originX = win ? win.scrollX : 0;
   const originY = win ? win.scrollY : 0;
 
@@ -495,7 +523,8 @@ function positionOnce(reference, floating, options) {
  * @param {PositionReference} reference
  * @param {HTMLElement} floating
  * @param {RepositionOptions} [options]
- * @returns {boolean} False when positioning cannot be performed: hidden floating element, missing reference rect, reference outside the boundary, or a document without a browsing context.
+ * @returns {boolean} False when positioning cannot be performed: hidden floating element, missing reference rect, every reference rect outside the boundary, or a document without a browsing context.
+ * @throws {TypeError} For an unknown `placement` or `coordinateSpace`, before anything is written.
  */
 export function reposition(reference, floating, options = {}) {
   const measured = positionOnce(reference, floating, options);

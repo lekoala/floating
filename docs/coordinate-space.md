@@ -23,6 +23,11 @@ The space and the CSS `position` form a single contract. The engine writes
 geometry and never sets `position`, so pairing them correctly is the consumer's
 job.
 
+Only an absent or `undefined` option means `"viewport"`. Any other value outside
+the two above, an empty string included, throws a `TypeError` before anything is
+written: a misspelled space would otherwise produce coordinates that are wrong
+without saying so.
+
 ## Viewport space
 
 ```js
@@ -138,7 +143,9 @@ const stop = autoUpdate(reference, panel, update);
 ```
 
 Reading once also freezes the value for that opening, which is the behavior you
-want, and it needs no resolved state on the instance.
+want, and it needs no resolved state on the instance. A component that reads the
+value from markup validates it at that point, and falls back to `"viewport"` with
+a warning, rather than letting the `TypeError` surface on every tracked frame.
 
 Do not derive the choice from `position: fixed`, `position: sticky`,
 `:popover-open`, `<dialog>`, `offsetParent`, or DOM ancestry. Those are useful

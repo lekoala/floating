@@ -49,8 +49,13 @@ See [the Popover demo](demo/popover.html) for opening and cleanup.
 ### `reposition(reference, floating, options?)`
 
 Writes `left` and `top` in viewport coordinates by default. Returns `false` if the surface is
-not rendered, the reference has no rect or is outside the boundary, or the document
-has no browsing context. Otherwise returns `true`.
+not rendered, the reference has no rect or every one of its rects is outside the
+boundary, or the document has no browsing context. Otherwise returns `true`.
+
+Throws a `TypeError`, before writing anything, for an unknown `placement` or
+`coordinateSpace`. Only an absent or `undefined` option takes the default; an empty
+string is rejected like any other unknown value. Validate values read at runtime,
+such as data attributes, where they are read.
 
 | Option            | Default          | Behavior                                                               |
 |-------------------|------------------|------------------------------------------------------------------------|
@@ -203,8 +208,13 @@ The callback receives `{ type: "scroll" | "resize" | "element-resize" }`.
 Multiple causes use this priority: `element-resize` > `resize` > `scroll`.
 Listen directly for events that require their own action, such as closing on scroll.
 
+A callback that throws is reported through `reportError()` and does not prevent
+the other subscriptions of the same frame from being called.
+
 Movement without scroll or resize is not tracked. Call `reposition()` after other
-layout changes your code causes.
+layout changes your code causes. ResizeObserver does not report non-replaced inline
+elements, so a reference such as a link whose lines rewrap inside a resized
+container, without a viewport resize, is not detected either.
 
 ## Visibility
 

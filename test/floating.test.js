@@ -404,6 +404,110 @@ test("reposition rejects an unknown placement", async () => {
   assert.throws(() => reposition(ref, float, { placement: "auto" }), TypeError);
 });
 
+test("only an absent placement takes the default", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 100, width: 80, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 40, height: 30 });
+
+  assert.throws(() => reposition(ref, float, { placement: "" }), TypeError);
+  assert.equal(float.style.left, "");
+
+  assert.equal(reposition(ref, float, { placement: undefined }), true);
+  assert.equal(float.dataset.placement, "bottom-start");
+});
+
+test("reposition rejects an unknown coordinateSpace before writing", async () => {
+  const { reposition, repositionAt } = await api();
+  setViewport();
+  document.body.innerHTML = '<button id="ref"></button><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(ref, { x: 100, y: 100, width: 80, height: 20 });
+  mockRect(float, { x: 0, y: 0, width: 40, height: 30 });
+
+  assert.throws(() => reposition(ref, float, { coordinateSpace: "page" }), TypeError);
+  assert.throws(() => reposition(ref, float, { coordinateSpace: "" }), TypeError);
+  assert.throws(() => repositionAt(10, 10, float, { coordinateSpace: "page" }), TypeError);
+  assert.equal(float.style.left, "");
+  assert.equal(float.dataset.placement, undefined);
+
+  assert.equal(reposition(ref, float, { coordinateSpace: undefined }), true);
+  assert.equal(float.style.left, "100px");
+});
+
+function lineRect(x, y, width, height) {
+  return { x, y, width, height, left: x, top: y, right: x + width, bottom: y + height };
+}
+
+test("a multiline reference whose last line is below the boundary flips to its first", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<a id="ref"></a><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 80, height: 30 });
+  ref.getClientRects = () => [lineRect(100, 740, 200, 20), lineRect(50, 770, 150, 20)];
+
+  assert.equal(reposition(ref, float, { placement: "bottom" }), true);
+  assert.equal(float.dataset.placement, "top");
+  assert.equal(float.style.left, "160px");
+  assert.equal(float.style.top, "710px");
+});
+
+test("a multiline reference whose first line is above the boundary flips to its last", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<a id="ref"></a><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 80, height: 30 });
+  ref.getClientRects = () => [lineRect(100, -30, 200, 20), lineRect(50, 10, 150, 20)];
+
+  assert.equal(reposition(ref, float, { placement: "top" }), true);
+  assert.equal(float.dataset.placement, "bottom");
+  assert.equal(float.style.left, "85px");
+  assert.equal(float.style.top, "30px");
+});
+
+test("a multiline reference with every line outside the boundary is not positioned", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<a id="ref"></a><div id="float"></div>';
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 80, height: 30 });
+  ref.getClientRects = () => [lineRect(100, 780, 200, 20), lineRect(50, 800, 150, 20)];
+
+  assert.equal(reposition(ref, float, { placement: "bottom" }), false);
+  assert.equal(reposition(ref, float, { placement: "top" }), false);
+  assert.equal(float.style.left, "");
+});
+
+test("a multiline reference half outside a scoped boundary flips to its visible line", async () => {
+  const { reposition } = await api();
+  setViewport();
+  document.body.innerHTML = '<div id="scope"><a id="ref"></a><div id="float"></div></div>';
+  const scope = document.getElementById("scope");
+  const ref = document.getElementById("ref");
+  const float = document.getElementById("float");
+  mockRect(scope, { x: 50, y: 50, width: 300, height: 200 });
+  mockRect(float, { x: 0, y: 0, width: 80, height: 30 });
+  /* The last line is inside the viewport but below the scope. */
+  ref.getClientRects = () => [lineRect(100, 220, 100, 20), lineRect(60, 260, 100, 20)];
+
+  assert.equal(reposition(ref, float, { placement: "bottom", scope }), true);
+  assert.equal(float.dataset.placement, "top");
+  assert.equal(float.style.left, "110px");
+  assert.equal(float.style.top, "190px");
+
+  ref.getClientRects = () => [lineRect(100, 260, 100, 20), lineRect(60, 280, 100, 20)];
+  assert.equal(reposition(ref, float, { placement: "bottom", scope }), false);
+});
+
 test("reposition settles a size its own --available-height drives", async () => {
   const { reposition } = await api();
   setViewport();
@@ -989,6 +1093,33 @@ test("each subscription owns its size observer", async () => {
   assert.equal(resizeObservers[1].disconnected, false);
   stopB();
   assert.equal(resizeObservers[1].disconnected, true);
+});
+
+test("a throwing callback is reported without starving later subscriptions", async () => {
+  const { autoUpdate } = await api();
+  document.body.innerHTML = '<div id="a"></div><div id="b"></div>';
+  const reported = [];
+  window.reportError = (error) => reported.push(error);
+  const calls = [];
+  const stopA = autoUpdate(null, document.getElementById("a"), () => {
+    calls.push("a");
+    throw new TypeError("Unknown placement: rigth");
+  });
+  const stopB = autoUpdate(null, document.getElementById("b"), () => calls.push("b"));
+
+  try {
+    for (let frame = 0; frame < 3; frame++) {
+      document.dispatchEvent(new window.Event("scroll"));
+      await nextFrame();
+    }
+    assert.deepEqual(calls, ["a", "b", "a", "b", "a", "b"]);
+    assert.equal(reported.length, 3);
+    assert.ok(reported.every((error) => error instanceof TypeError));
+  } finally {
+    stopA();
+    stopB();
+    delete window.reportError;
+  }
 });
 
 test("autoUpdate does not deliver an event queued before the subscription", async () => {
