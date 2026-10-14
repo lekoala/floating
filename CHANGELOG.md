@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - Fix: a multiline inline reference that flips from `bottom` to `top` now anchors
   to its first line instead of covering it from the last one. The arrow and
