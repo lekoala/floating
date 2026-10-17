@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - Fix: `repositionAt()` validates `placement` and `coordinateSpace` without a
   browsing context too, throwing a `TypeError` like `reposition()` instead of

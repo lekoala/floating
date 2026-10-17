@@ -1,6 +1,6 @@
 {
   "name": "@lekoala/floating",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Small zero-dependency positioning engine for floating browser UI",
   "type": "module",
   "license": "MIT",
