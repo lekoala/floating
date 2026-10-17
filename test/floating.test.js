@@ -1256,6 +1256,33 @@ test("reposition returns false without a browsing context", async () => {
   const viewlessFloat = viewless.createElement("div");
   viewless.body.append(viewlessFloat);
   assert.equal(repositionAt(10, 10, viewlessFloat), false);
+  assert.throws(() => repositionAt(10, 10, viewlessFloat, { placement: "middle" }), TypeError);
+  assert.throws(() => repositionAt(10, 10, viewlessFloat, { coordinateSpace: "page" }), TypeError);
+});
+
+test("repositionAt reads document direction only for aligned placements", async () => {
+  const { repositionAt } = await api();
+  setViewport();
+  document.body.innerHTML = '<div id="float"></div>';
+  const float = document.getElementById("float");
+  mockRect(float, { x: 0, y: 0, width: 100, height: 50 });
+
+  let directionReads = 0;
+  window.getComputedStyle = (element) => {
+    const style = nativeGetComputedStyle(element);
+    if (element !== document.documentElement) return style;
+    return new Proxy(style, {
+      get(target, property) {
+        if (property === "direction") directionReads++;
+        return Reflect.get(target, property);
+      },
+    });
+  };
+
+  repositionAt(200, 160, float, { placement: "bottom" });
+  assert.equal(directionReads, 0);
+  repositionAt(200, 160, float, { placement: "bottom-start" });
+  assert.equal(directionReads, 1);
 });
 
 test("autoUpdate rejects a document without a browsing context", async () => {

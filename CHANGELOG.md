@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Fix: `repositionAt()` validates `placement` and `coordinateSpace` without a
+  browsing context too, throwing a `TypeError` like `reposition()` instead of
+  returning `false` first. It reads the document `direction` only for aligned
+  placements.
+- The internal `Subscription` type is no longer exported from the declarations.
+
 ## 0.3.0
 
 - Fix: a multiline inline reference that flips from `bottom` to `top` now anchors

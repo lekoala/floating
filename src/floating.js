@@ -30,13 +30,6 @@
 /** @typedef {Element | VirtualReference} PositionReference */
 
 /**
- * @typedef {Object} Subscription
- * @property {Element | null} reference
- * @property {HTMLElement} floating
- * @property {(detail: AutoUpdateDetail) => void} callback
- */
-
-/**
  * @typedef {Object} AutoUpdateDetail
  * @property {"scroll" | "resize" | "element-resize"} type Most specific change since the last frame, at most one per frame.
  */
@@ -214,6 +207,14 @@ const TYPE_PRIORITY = { scroll: 0, resize: 1, "element-resize": 2 };
 function createTracker(doc) {
   const win = doc.defaultView;
   if (!win) throw new TypeError("floating must belong to a document with a browsing context");
+
+  /**
+   * Scoped to the tracker so it stays out of the public declarations.
+   * @typedef {Object} Subscription
+   * @property {Element | null} reference
+   * @property {HTMLElement} floating
+   * @property {(detail: AutoUpdateDetail) => void} callback
+   */
 
   /** @type {Set<Subscription>} */
   const subscriptions = new Set();
@@ -449,6 +450,8 @@ function positionOnce(reference, floating, options) {
     crossAxis = crossAxisFor(side);
   }
 
+  /* Swapping start/end is horizontal only: a side placement such as a submenu
+   * slides along its reference instead of jumping to the other alignment. */
   if (crossAxis === "x" && shift && align) {
     const overflow = overflowAt(coords.x, "x");
 
@@ -559,16 +562,16 @@ export function reposition(reference, floating, options = {}) {
  */
 export function repositionAt(x, y, floating, options = {}) {
   const doc = floating.ownerDocument;
-  const docEl = doc.documentElement;
   const win = doc.defaultView;
-  if (!win) return false;
-
-  const direction = docEl ? win.getComputedStyle(docEl).direction : "";
-  const point = new win.DOMRect(x, y, 0, 0);
+  /* reposition() validates options even without a browsing context, then finds
+   * no rect. Direction is read only for aligned placements. */
   const reference = {
     ownerDocument: doc,
-    dir: direction,
-    getClientRects: () => [point],
+    get dir() {
+      const docEl = doc.documentElement;
+      return win && docEl ? win.getComputedStyle(docEl).direction : "";
+    },
+    getClientRects: () => (win ? [new win.DOMRect(x, y, 0, 0)] : []),
   };
 
   return reposition(reference, floating, options);
